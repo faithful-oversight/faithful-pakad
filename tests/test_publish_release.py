@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -233,7 +234,8 @@ def test_main_reports_errors_and_runs_steps(
 
 
 @pytest.mark.skipif(
-    shutil.which("git") is None or shutil.which("uv") is None, reason="needs git and uv"
+    os.name != "posix" or shutil.which("git") is None or shutil.which("uv") is None,
+    reason="release evidence is built on Linux, with git and uv",
 )
 def test_release_evidence_is_reproducible(tmp_path: Path) -> None:
     """Two runs of scripts/release_evidence.sh give the same SBOM and SHA256SUMS."""
