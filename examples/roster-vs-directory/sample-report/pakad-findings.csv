@@ -1,0 +1,10 @@
+id,kind,severity,key,source,message,details
+F00001,missing,error,000106,expected.csv line 7,Expected record has no match in the collected export.,key columns: employee_id
+F00002,unexpected,error,000110,collected.csv line 12,Collected record is not in the expected population.,key columns: employeeID
+F00003,duplicate-key,error,000105,collected.csv line 6; collected.csv line 7,The same key appears more than once in the collected input (2 records).,raw values: 000105
+F00004,ambiguous-key,error,a0108,collected.csv line 9; collected.csv line 10,Different raw values become the same key after normalization in the collected input (2 records).,raw values:  A0108; a0108
+F00005,blank-key,error,—,collected.csv line 13,"A collected record has a key that is empty after normalization, so it cannot be matched.",key columns: employeeID
+F00006,field-mismatch,error,000104,expected.csv line 5; collected.csv line 5,status (expected) and accountEnabled (collected) differ.,field: status / accountEnabled; expected value: terminated; collected value: TRUE
+F00007,missing-source,error,—,—,No collected records come from expected source 'apac.corp.example'.,source column: domain; source: apac.corp.example
+F00008,stale-record,warning,—,collected.csv line 8,Record was captured 78.0 hours before the reference time.,column: collectedAt; captured at: 2026-11-04T06:00:00+00:00; max age hours: 24
+F00009,invalid-timestamp,warning,—,collected.csv line 11,Capture time in collectedAt is absent or not a usable ISO 8601 timestamp.,column: collectedAt; value: 2026-11-07 06:00:00

@@ -1,10 +1,10 @@
 # Threat model
 
-> **Status: initial.** This model covers the planned design. Review it whenever an input format, output format, or dependency changes.
+> Review this model whenever an input format, output format, or dependency changes.
 
 ## What the tool protects
 
-- **The operator's data.** Inputs are CSV and JSON exports supplied by the operator. They can hold sensitive account, group, and configuration details.
+- **The operator's data.** Inputs are CSV and JSON exports supplied by the operator. They can hold sensitive account, group, and configuration details, and so can the reports.
 - **The integrity of results.** Reviewers and assessors rely on the output as evidence.
 - **The operator's machine.** The tool processes files that may come from systems the operator does not fully trust.
 - **The supply chain.** Users install release artifacts built by this project's pipeline.
@@ -17,18 +17,18 @@
 
 ## Threats and controls (STRIDE)
 
-The **Status** column uses three values. **In place** means the repository enforces it today. **Planned** means it is a design requirement for features not yet built. **Needs settings** means it depends on repository settings applied outside the code.
+The **Status** column says whether each control is in place today. Branch rules depend on repository settings, which are applied outside the code.
 
 | Category | Threat | Control | Status |
 | --- | --- | --- | --- |
 | Spoofing | A tampered release artifact is installed in place of the real one. | Releases are built only by the release workflow from a commit on `main`, with a published `SHA256SUMS` file and a software bill of materials. Build provenance attestations are added once the repository is public. | In place (attestations when public) |
-| Tampering | A crafted input file changes results, for example by injecting duplicate keys or changing identifier types. | Strict validation, identifiers kept as text, duplicates and ambiguities reported as findings, and every finding linked to its source record. | Planned |
+| Tampering | A crafted input file changes results, for example by injecting duplicate keys or changing identifier types. | Values are never converted from text. Duplicate and ambiguous keys, duplicate column names, and duplicate JSON properties are reported or rejected rather than silently merged. Every finding links to its source record. | In place |
 | Tampering | A malicious change enters the code base. | Pull requests only, a required passing check, resolved conversations, no force pushes to `main`, signed-off commits, and actions pinned to full commit hashes. | In place (branch rules need settings) |
-| Repudiation | A user cannot show which inputs and rules produced a report. | Reports record the tool version, input file hashes, and the rules applied. | Planned |
-| Information disclosure | Reports leak more data than needed, or test fixtures contain real data. | Reports include only the fields findings need. Fixtures are synthetic. Secret scanning runs on every change and across the full history. | Secret scanning in place; the rest planned |
+| Repudiation | A user cannot show which inputs and rules produced a report. | Reports record the tool version, the SHA-256 of each input and of the profile, the rules applied, and the reference time. | In place |
+| Information disclosure | Reports leak more data than needed, or test fixtures contain real data. | Reports include only keys and compared fields, never whole records. Report files are created readable only by the current user on Linux and macOS, and are never silently overwritten. Fixtures are synthetic. Secret scanning runs on every change and across the full history. | In place |
 | Information disclosure | The tool sends data over the network. | No network code and no telemetry. | In place |
-| Denial of service | Oversized or deeply nested inputs exhaust memory or time. | Streaming parsers where possible, size limits, and `defusedxml` protection against XML entity expansion. | Planned |
-| Elevation of privilege | Input content runs as code: XML external entities, formula injection in CSV output, or script injection in HTML output. | `defusedxml` for all XML, formula neutralization in all CSV and spreadsheet output, and escaping of all HTML output. No use of `eval`, `exec`, or `pickle` on input. | Planned; Ruff security rules in place |
+| Denial of service | Oversized or deeply nested inputs exhaust memory or time. | A per-file size limit (256 MiB by default), a 1 MiB limit per CSV field, a 1 MiB limit for profiles, and deeply nested JSON rejected as an input error. pakad reads no XML. | In place |
+| Elevation of privilege | Input content runs as code: formula injection in CSV output, or script or markup injection in HTML and Markdown output. | Formula neutralization of every CSV cell, including full-width trigger characters. HTML escaping of every value plus a content security policy that blocks scripts, network requests, and forms. Markdown escaping of every value. No `eval`, `exec`, or `pickle`. Property-based tests cover the escaping functions. | In place |
 | Elevation of privilege | A compromised dependency or build step runs with broad permissions. | Minimal runtime dependencies, locked versions, vulnerability and license scanning, least-privilege workflow tokens, and workflow security analysis with zizmor. | In place |
 
 ## Residual risks

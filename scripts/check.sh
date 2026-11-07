@@ -19,11 +19,16 @@ stage_types()     { run mypy; }
 stage_test()      { run pytest --cov-fail-under=95; }
 stage_docs() {
   local -a docs
-  mapfile -t docs < <(git ls-files '*.md')
+  # Generated sample reports are checked by tests, not by the prose linters.
+  mapfile -t docs < <(git ls-files '*.md' ':!:examples/*/sample-report/*')
   run pymarkdown --config .pymarkdown.json scan "${docs[@]}"
   git ls-files -z | xargs -0 uv run --locked --no-sync codespell --
   run vale sync >/dev/null
   run vale --minAlertLevel=warning "${docs[@]}"
+}
+stage_site() {
+  rm -rf build/docs
+  run sphinx-build --fail-on-warning --keep-going --nitpicky --quiet --builder html docs build/docs
 }
 stage_config() {
   run yamllint --strict .
@@ -50,7 +55,7 @@ stage_build() {
   run twine check --strict dist/*
 }
 
-ALL=(format lint types test docs config workflows secrets deps licenses reuse build)
+ALL=(format lint types test docs site config workflows secrets deps licenses reuse build)
 
 [[ $# -gt 0 ]] || { echo "usage: $0 <stage>... | all (stages: ${ALL[*]})" >&2; exit 2; }
 [[ "$1" == "all" ]] && set -- "${ALL[@]}"

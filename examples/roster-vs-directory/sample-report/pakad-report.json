@@ -1,0 +1,265 @@
+{
+  "$schema": "https://github.com/faithful-oversight/faithful-pakad/blob/main/src/faithful_pakad/schema/report-v1.schema.json",
+  "schema_version": "1.0",
+  "tool": {
+    "name": "pakad",
+    "version": "0.1.0"
+  },
+  "generated_at": "2026-11-07T20:23:13+00:00",
+  "as_of": "2026-11-07T12:00:00+00:00",
+  "profile": {
+    "name": "HR roster vs directory export",
+    "file": "profile.toml",
+    "sha256": "285f99b876116a207b924538fa817ee973d076e8d8068fa4ce48c8abbf7f7b81"
+  },
+  "inputs": {
+    "expected": {
+      "file": "expected.csv",
+      "sha256": "a44a4f07a0d3a27d9eeb1d95736fbd7b92bb21bb006d122af89cb4bde836b2d8",
+      "bytes": 390,
+      "records": 9,
+      "columns": [
+        "employee_id",
+        "display_name",
+        "department",
+        "status"
+      ]
+    },
+    "collected": {
+      "file": "collected.csv",
+      "sha256": "8e7cf644a6c61b4b433b323cace116fe78d2504f70001fb29dcddbfc919e9aa7",
+      "bytes": 793,
+      "records": 12,
+      "columns": [
+        "employeeID",
+        "sAMAccountName",
+        "domain",
+        "accountEnabled",
+        "collectedAt"
+      ]
+    }
+  },
+  "summary": {
+    "expected_records": 9,
+    "collected_records": 12,
+    "matched_keys": 8,
+    "errors": 7,
+    "warnings": 2,
+    "findings_by_kind": {
+      "missing": 1,
+      "unexpected": 1,
+      "duplicate-key": 1,
+      "ambiguous-key": 1,
+      "blank-key": 1,
+      "field-mismatch": 1,
+      "missing-source": 1,
+      "stale-record": 1,
+      "invalid-timestamp": 1,
+      "possible-truncation": 0
+    }
+  },
+  "rules": [
+    "Match expected [employee_id] to collected [employeeID] after normalization: strip, casefold.",
+    "Compare status with accountEnabled after normalization: strip, casefold; 2 equivalent values.",
+    "Every expected source must appear in domain: corp.example, eu.corp.example, apac.corp.example.",
+    "Records in collectedAt must be at most 24 hours old (naive timestamps: reject).",
+    "Warn when record counts are exact multiples of 1000, 1500, 5000."
+  ],
+  "unknowns": [
+    {
+      "check": "field comparison",
+      "reason": "Skipped for 2 matched keys with duplicate records, because the records to compare cannot be chosen safely."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F00001",
+      "kind": "missing",
+      "severity": "error",
+      "message": "Expected record has no match in the collected export.",
+      "key": [
+        "000106"
+      ],
+      "refs": [
+        {
+          "input": "expected",
+          "file": "expected.csv",
+          "row": 7,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "key_columns": "employee_id"
+      }
+    },
+    {
+      "id": "F00002",
+      "kind": "unexpected",
+      "severity": "error",
+      "message": "Collected record is not in the expected population.",
+      "key": [
+        "000110"
+      ],
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 12,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "key_columns": "employeeID"
+      }
+    },
+    {
+      "id": "F00003",
+      "kind": "duplicate-key",
+      "severity": "error",
+      "message": "The same key appears more than once in the collected input (2 records).",
+      "key": [
+        "000105"
+      ],
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 6,
+          "unit": "line"
+        },
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 7,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "raw_values": "000105"
+      }
+    },
+    {
+      "id": "F00004",
+      "kind": "ambiguous-key",
+      "severity": "error",
+      "message": "Different raw values become the same key after normalization in the collected input (2 records).",
+      "key": [
+        "a0108"
+      ],
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 9,
+          "unit": "line"
+        },
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 10,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "raw_values": " A0108; a0108"
+      }
+    },
+    {
+      "id": "F00005",
+      "kind": "blank-key",
+      "severity": "error",
+      "message": "A collected record has a key that is empty after normalization, so it cannot be matched.",
+      "key": null,
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 13,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "key_columns": "employeeID"
+      }
+    },
+    {
+      "id": "F00006",
+      "kind": "field-mismatch",
+      "severity": "error",
+      "message": "status (expected) and accountEnabled (collected) differ.",
+      "key": [
+        "000104"
+      ],
+      "refs": [
+        {
+          "input": "expected",
+          "file": "expected.csv",
+          "row": 5,
+          "unit": "line"
+        },
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 5,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "field": "status / accountEnabled",
+        "expected_value": "terminated",
+        "collected_value": "TRUE"
+      }
+    },
+    {
+      "id": "F00007",
+      "kind": "missing-source",
+      "severity": "error",
+      "message": "No collected records come from expected source 'apac.corp.example'.",
+      "key": null,
+      "refs": [],
+      "details": {
+        "source_column": "domain",
+        "source": "apac.corp.example"
+      }
+    },
+    {
+      "id": "F00008",
+      "kind": "stale-record",
+      "severity": "warning",
+      "message": "Record was captured 78.0 hours before the reference time.",
+      "key": null,
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 8,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "column": "collectedAt",
+        "captured_at": "2026-11-04T06:00:00+00:00",
+        "max_age_hours": "24"
+      }
+    },
+    {
+      "id": "F00009",
+      "kind": "invalid-timestamp",
+      "severity": "warning",
+      "message": "Capture time in collectedAt is absent or not a usable ISO 8601 timestamp.",
+      "key": null,
+      "refs": [
+        {
+          "input": "collected",
+          "file": "collected.csv",
+          "row": 11,
+          "unit": "line"
+        }
+      ],
+      "details": {
+        "column": "collectedAt",
+        "value": "2026-11-07 06:00:00"
+      }
+    }
+  ]
+}

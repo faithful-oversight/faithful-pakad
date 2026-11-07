@@ -85,7 +85,7 @@ jobs:
         with:
           enable-cache: false
       - run: uv sync --locked
-      - run: scripts/check.sh docs config reuse
+      - run: scripts/check.sh docs site config reuse
       - run: scripts/check.sh workflows
         env:
           # Only zizmor sees the token. It lets zizmor run its online audits,
@@ -154,7 +154,16 @@ jobs:
         run: |
           uv venv --clear "$RUNNER_TEMP/smoke"
           uv pip install --python "$RUNNER_TEMP/smoke" dist/*.whl
-          "$RUNNER_TEMP/smoke/bin/pakad" --version
+          pakad="$RUNNER_TEMP/smoke/bin/pakad"
+          "$pakad" --version
+          "$pakad" example "$RUNNER_TEMP/demo"
+          status=0
+          "$pakad" reconcile -p "$RUNNER_TEMP/demo/profile.toml" -e "$RUNNER_TEMP/demo/expected.csv" \
+            -c "$RUNNER_TEMP/demo/collected.csv" -o "$RUNNER_TEMP/demo/report" \
+            --as-of 2026-11-07T12:00:00Z || status=$?
+          test "$status" -eq 1
+          test -s "$RUNNER_TEMP/demo/report/pakad-report.html"
+          "$pakad" schema > /dev/null
 
   pull-request:
     name: Pull request title and sign-off
