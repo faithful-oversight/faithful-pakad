@@ -81,7 +81,13 @@ class SourceRef:
 
 @dataclass(frozen=True, slots=True)
 class Record:
-    """One row of an input, with every value kept as text."""
+    """One row of an input, with every value kept as text.
+
+    ``values`` holds only the fields present in the row. Read values with
+    ``values.get(column)``: a column missing from the mapping is absent (``None``).
+    Storing only present fields keeps memory proportional to the input size, even
+    when records have different columns.
+    """
 
     ref: SourceRef
     values: Mapping[str, Value]

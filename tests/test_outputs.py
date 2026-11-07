@@ -20,6 +20,7 @@ from faithful_pakad.model import Finding, Kind, Result, Side, SourceRef, Table, 
 from faithful_pakad.outputs import build_report, format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
 from faithful_pakad.outputs.render import (
+    CSV_COLUMNS,
     RENDERERS,
     render_all,
     render_csv,
@@ -33,6 +34,7 @@ from faithful_pakad.profile import parse_profile
 from tests.conftest import MINIMAL_PROFILE
 
 AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
+CSV_HEADER = ("id", "kind", "severity", "key", "source", "message", "details", "run_id")
 EVIL = '=HYPERLINK("http://x")<script>alert(1)</script>|`*_[a](b)&amp;'
 SCHEMA = json.loads(files("faithful_pakad").joinpath("schema/report-v1.schema.json").read_text())
 
@@ -44,7 +46,8 @@ def make_report(
     exp = Table(Side.EXPECTED, "e.csv", "a" * 64, 10, ("id",), ())
     col = Table(Side.COLLECTED, "c.json", "b" * 64, 20, ("uid",), ())
     result = Result(findings, unknowns, 0, ("rule one",))
-    return build_report(result, profile, exp, col, as_of=AS_OF, generated_at=AS_OF)
+    run_id = "0123456789abcdef" * 2
+    return build_report(result, profile, exp, col, as_of=AS_OF, generated_at=AS_OF, run_id=run_id)
 
 
 ALL_KINDS = tuple(
@@ -89,7 +92,8 @@ def test_every_kind_has_guidance() -> None:
 
 def test_csv_neutralizes_formulas() -> None:
     rows = list(csv.reader(io.StringIO(render_csv(make_report(ALL_KINDS)))))
-    assert rows[0] == ["id", "kind", "severity", "key", "source", "message", "details"]
+    assert rows[0] == [*CSV_HEADER]
+    assert {row[7] for row in rows[1:]} == {"0123456789abcdef" * 2}
     assert len(rows) == 1 + len(Kind)
     for row in rows[1:]:
         assert not any(cell.startswith(FORMULA_TRIGGERS) for cell in row)
@@ -151,11 +155,11 @@ def test_terminal_summary() -> None:
     assert "1 check not verified" in text
 
 
-def test_format_ref() -> None:
-    assert (
-        format_ref({"input": "expected", "file": "a.csv", "row": 3, "unit": "line"})
-        == "a.csv line 3"
-    )
+def test_format_ref_names_the_input() -> None:
+    """Two inputs with the same file name stay distinguishable."""
+    ref = {"input": "expected", "file": "users.csv", "row": 3, "unit": "line"}
+    assert format_ref(ref) == "expected: users.csv line 3"
+    assert CSV_COLUMNS == CSV_HEADER
 
 
 @given(st.text())

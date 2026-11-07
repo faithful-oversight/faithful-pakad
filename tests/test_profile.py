@@ -132,3 +132,22 @@ def test_load_profile_rejects_non_utf8(write: Callable[[str, str | bytes], Path]
 def test_load_profile_rejects_huge_file(write: Callable[[str, str | bytes], Path]) -> None:
     with pytest.raises(ProfileError, match="larger than"):
         load_profile(write("p.toml", "#" * (1024 * 1024 + 1)))
+
+
+@pytest.mark.parametrize("version", ["true", "1.0", '"1"', "2", "-1"])
+def test_version_must_be_exactly_the_integer_1(version: str) -> None:
+    with pytest.raises(ProfileError, match="version must be 1"):
+        parse_profile(MINIMAL_PROFILE.replace("version = 1", f"version = {version}"))
+
+
+@pytest.mark.parametrize("age", ["9" * 401, "-" + "9" * 401, "87601", "-1"])
+def test_huge_or_out_of_range_ages_are_profile_errors(age: str) -> None:
+    text = MINIMAL_PROFILE + f"[collection]\ncaptured_at_column = 't'\nmax_age_hours = {age}\n"
+    with pytest.raises(ProfileError, match="at most 87600"):
+        parse_profile(text)
+
+
+@pytest.mark.parametrize("age", ["87600", "0.001", "24"])
+def test_boundary_ages_are_accepted(age: str) -> None:
+    text = MINIMAL_PROFILE + f"[collection]\ncaptured_at_column = 't'\nmax_age_hours = {age}\n"
+    assert parse_profile(text).collection.max_age_hours == float(age)

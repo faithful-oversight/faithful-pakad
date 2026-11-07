@@ -7,8 +7,9 @@
 
 Users need searchable, navigable documentation. Reviewers need documentation changes to go through the same review and checks as code. Options considered: a GitHub wiki, Material for MkDocs, Zensical, and Sphinx.
 
-- A GitHub wiki is edited outside pull request review and has no versioning or full-text search.
-- Material for MkDocs reached end of life on 2026-11-05, and MkDocs itself has had no release since 2024.
+- A GitHub wiki keeps its own Git history, but it is a separate repository edited outside pull request review, so wiki changes skip the checks that code and docs changes pass.
+- Material for MkDocs is in maintenance mode, with critical fixes and security updates only until its end of life on 2027-05-05, as the 9.8.0 release notes state (checked 2026-11-07). An earlier announcement gave 2026-11-05.
+- MkDocs itself has had no release since 2024.
 - Zensical, the successor to Material for MkDocs, was at version 0.1 when this decision was made.
 - Sphinx is mature and actively released, and is the generator behind the Python documentation.
 

@@ -15,10 +15,11 @@ First release.
 - `pakad reconcile`: compare an expected population with a collected export, matched on one or more key columns with explicit normalization.
 - Findings for missing, unexpected, duplicate, ambiguous, and blank keys, field mismatches with equivalent values, missing sources, stale and invalid capture times, and possible paging truncation.
 - A "Not verified" list in every report for checks that did not run.
-- Reports as self-contained HTML, JSON with a published JSON Schema, formula-safe CSV, and Markdown, all rendered from one report document.
+- Reports as self-contained HTML, JSON with a published JSON Schema, formula-safe CSV, and Markdown, all rendered from one report document and sharing one run ID.
+- Careful report publishing: complete files only, no overwriting without `--force`, and rollback when a forced replacement fails.
 - Evidence details in every report: SHA-256 of each input and the profile, rules applied, reference time, and tool version.
 - `pakad check-profile`, `pakad example`, `pakad example-profile`, and `pakad schema`.
 - Strict TOML profiles that reject unknown settings.
 - Safe CSV and JSON readers: size limits, strict decoding, no type conversion, and line numbers for every record.
 - Documentation site built with Sphinx, with a quickstart, command, profile, and output references, a guide for assessors, and decision records.
-- Project foundation: license, contribution and security policies, continuous integration, and release pipeline.
+- Project foundation: license, contribution and security policies, continuous integration, and a release pipeline that builds once with a pinned backend, tests the exact wheel, and verifies every published file's digest.

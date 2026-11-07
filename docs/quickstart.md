@@ -9,6 +9,12 @@ pipx install faithful-pakad
 pakad --version
 ```
 
+Until the first release reaches PyPI, install the wheel attached to a [GitHub release](https://github.com/faithful-oversight/faithful-pakad/releases) instead:
+
+```shell
+pipx install ./faithful_pakad-0.1.0-py3-none-any.whl
+```
+
 pakad runs on Windows, macOS, and Linux with Python 3.11 or newer.
 
 ## 2. Create the example

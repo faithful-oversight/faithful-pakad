@@ -194,7 +194,15 @@ def test_possible_truncation_overall_and_per_source() -> None:
     collected = [{"uid": str(i), "domain": "a" if i < 2 else "b"} for i in range(3)]
     result = run(text, [{"id": str(i)} for i in range(3)], collected)
     trunc = only(result, Kind.POSSIBLE_TRUNCATION)
-    assert trunc.details["group"] == "a"
+    assert trunc.details["source"] == "a"
+
+
+def test_a_source_name_cannot_hide_the_overall_count() -> None:
+    text = MINIMAL_PROFILE + "[collection]\npage_sizes = [3]\nsource_column = 'domain'\n"
+    domains = ["(all records)", "x", "x"]
+    collected = [{"uid": str(i), "domain": d} for i, d in enumerate(domains)]
+    result = run(text, [{"id": str(i)} for i in range(3)], collected)
+    assert only(result, Kind.POSSIBLE_TRUNCATION).details["scope"] == "all records"
 
 
 def test_empty_export_is_not_flagged_as_truncated() -> None:
@@ -241,7 +249,7 @@ def test_rules_describe_the_profile() -> None:
     )
     rules = parse_and_rules(text)
     assert rules[0].startswith("Match expected [id] to collected [uid]")
-    assert "1 equivalent value." in rules[1]
+    assert rules[1].endswith("; equivalents: true = active.")
     assert any("1.5 hours" in r for r in rules)
     assert any("multiples of 1000" in r for r in rules)
     assert any("Every expected source" in r for r in rules)

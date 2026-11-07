@@ -9,7 +9,9 @@ the pages themselves.
 
 from __future__ import annotations
 
+import shutil
 from importlib.metadata import version as _version
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -65,6 +67,18 @@ def _add_navigation(_: Sphinx, docname: str, source: list[str]) -> None:
         source[0] += "\n\n```{toctree}\n:hidden:\n\n" + "\n".join(pages) + "\n```\n"
 
 
+SCHEMA = Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/report-v1.schema.json"
+
+
+def _publish_schema(app: Sphinx, error: Exception | None) -> None:
+    """Serve the report schema at the URL its ``$id`` names."""
+    if error is None and app.builder.format == "html":
+        target = Path(app.outdir) / "schema"
+        target.mkdir(exist_ok=True)
+        shutil.copyfile(SCHEMA, target / SCHEMA.name)
+
+
 def setup(app: Sphinx) -> None:
-    """Register the build-time navigation hook."""
+    """Register the build-time hooks."""
     app.connect("source-read", _add_navigation)
+    app.connect("build-finished", _publish_schema)

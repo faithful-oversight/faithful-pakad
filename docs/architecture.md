@@ -33,7 +33,7 @@ inputs       ──► readers   CSV and JSON to text-only tables, with source l
 - **A versioned contract.** The JSON report follows a published JSON Schema. See [Reports and findings](output.md) for the compatibility promise.
 - **No prompts.** pakad never asks questions, so it runs unchanged in scripts and pipelines.
 - **Structured exit codes.** `0` success, `1` findings, `2` usage error, `3` input or output error, `4` internal error.
-- **All or nothing output.** Reports are written to temporary files and moved into place together, so a failed run never leaves partial evidence.
+- **Careful output.** Reports are complete before they appear, are never overwritten without `--force`, and are swapped in with rollback on failure. A shared run ID makes any mixed set detectable.
 - **Unknowns are results.** When pakad cannot check something, it reports it as not verified, never as passed.
 - **Read-only and offline.** No network code and no telemetry.
 

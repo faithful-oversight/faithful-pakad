@@ -51,8 +51,10 @@ stage_licenses()  { run python scripts/check_licenses.py; }
 stage_reuse()     { run reuse lint; }
 stage_build() {
   rm -rf dist
-  uv build
+  # Build with the pinned, hash-verified backend in requirements-build.txt.
+  uv build --build-constraint requirements-build.txt --require-hashes
   run twine check --strict dist/*
+  scripts/smoke_test.sh dist
 }
 
 ALL=(format lint types test docs site config workflows secrets deps licenses reuse build)

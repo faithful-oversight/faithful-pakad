@@ -1,11 +1,12 @@
 {
-  "$schema": "https://github.com/faithful-oversight/faithful-pakad/blob/main/src/faithful_pakad/schema/report-v1.schema.json",
+  "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json",
   "schema_version": "1.0",
   "tool": {
     "name": "pakad",
     "version": "0.1.0"
   },
-  "generated_at": "2026-11-07T20:33:07+00:00",
+  "run_id": "b59dcb8c5fdd43559b4521af486765d8",
+  "generated_at": "2026-11-07T22:21:50+00:00",
   "as_of": "2026-11-07T12:00:00+00:00",
   "profile": {
     "name": "HR roster vs directory export",
@@ -61,7 +62,7 @@
   },
   "rules": [
     "Match expected [employee_id] to collected [employeeID] after normalization: strip, casefold.",
-    "Compare status with accountEnabled after normalization: strip, casefold; 2 equivalent values.",
+    "Compare status with accountEnabled after normalization: strip, casefold; equivalents: true = active, false = terminated.",
     "Every expected source must appear in domain: corp.example, eu.corp.example, apac.corp.example.",
     "Records in collectedAt must be at most 24 hours old (naive timestamps: reject).",
     "Warn when record counts are exact multiples of 1000, 1500, 5000."

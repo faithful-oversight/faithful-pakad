@@ -38,7 +38,7 @@ page_sizes = [1000, 1500, 5000]
 
 | Setting | Required | Meaning |
 | --- | --- | --- |
-| `version` | Yes | Profile format version. Must be `1`. |
+| `version` | Yes | Profile format version. Must be the whole number `1`; `1.0` and `true` are rejected. |
 | `name` | No | Shown in report titles. Default: `unnamed profile`. |
 
 ## `[expected]` and `[collected]`

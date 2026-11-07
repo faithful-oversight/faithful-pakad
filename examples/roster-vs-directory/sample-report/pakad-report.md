@@ -2,7 +2,7 @@
 
 **7 errors and 2 warnings need review.**
 
-Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by pakad 0.1.0.
+Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T22:21:50+00:00 by pakad 0.1.0. Run ID `b59dcb8c5fdd43559b4521af486765d8`.
 
 > This report covers only what the input files contain. It cannot detect records a source system never exported, and a clean result is not proof that the environment is correct.
 
@@ -30,7 +30,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00001 | 000106 | expected.csv line 7 | key columns: employee\_id; raw key: 000106 |
+| F00001 | 000106 | expected: expected.csv line 7 | key columns: employee\_id; raw key: 000106 |
 
 ### Not in the expected population (1)
 
@@ -40,7 +40,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00002 | 000110 | collected.csv line 12 | key columns: employeeID; raw key: 000110 |
+| F00002 | 000110 | collected: collected.csv line 12 | key columns: employeeID; raw key: 000110 |
 
 ### Duplicate keys (1)
 
@@ -50,7 +50,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00003 | 000105 | collected.csv line 6; collected.csv line 7 | raw values: 000105 |
+| F00003 | 000105 | collected: collected.csv line 6; collected: collected.csv line 7 | raw values: 000105 |
 
 ### Keys that collide after normalization (1)
 
@@ -60,7 +60,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00004 | a0108 | collected.csv line 9; collected.csv line 10 | raw values:  A0108; a0108 |
+| F00004 | a0108 | collected: collected.csv line 9; collected: collected.csv line 10 | raw values:  A0108; a0108 |
 
 ### Records without a usable key (1)
 
@@ -70,7 +70,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00005 | — | collected.csv line 13 | key columns: employeeID |
+| F00005 | — | collected: collected.csv line 13 | key columns: employeeID |
 
 ### Field values that disagree (1)
 
@@ -80,7 +80,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00006 | 000104 | expected.csv line 5; collected.csv line 5 | field: status / accountEnabled; expected value: terminated; collected value: TRUE |
+| F00006 | 000104 | expected: expected.csv line 5; collected: collected.csv line 5 | field: status / accountEnabled; expected value: terminated; collected value: TRUE |
 
 ### Expected sources with no records (1)
 
@@ -100,7 +100,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00008 | — | collected.csv line 8 | column: collectedAt; captured at: 2026-11-04T06:00:00+00:00; max age hours: 24 |
+| F00008 | — | collected: collected.csv line 8 | column: collectedAt; captured at: 2026-11-04T06:00:00+00:00; max age hours: 24 |
 
 ### Unusable capture times (1)
 
@@ -110,7 +110,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00009 | — | collected.csv line 11 | column: collectedAt; value: 2026-11-07 06:00:00 |
+| F00009 | — | collected: collected.csv line 11 | column: collectedAt; value: 2026-11-07 06:00:00 |
 
 ## Evidence
 
@@ -123,7 +123,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T20:33:07+00:00 by
 Rules applied:
 
 - Match expected \[employee\_id\] to collected \[employeeID\] after normalization: strip, casefold.
-- Compare status with accountEnabled after normalization: strip, casefold; 2 equivalent values.
+- Compare status with accountEnabled after normalization: strip, casefold; equivalents: true = active, false = terminated.
 - Every expected source must appear in domain: corp.example, eu.corp.example, apac.corp.example.
 - Records in collectedAt must be at most 24 hours old (naive timestamps: reject).
 - Warn when record counts are exact multiples of 1000, 1500, 5000.

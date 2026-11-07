@@ -85,7 +85,7 @@ def _empty(table: Table) -> Finding:
 
 def _raw_key(records: Sequence[Record], columns: Sequence[str]) -> str:
     """Return the key as written in the first record, before normalization."""
-    return " | ".join(records[0].values[c] or "" for c in columns)
+    return " | ".join(records[0].values.get(c) or "" for c in columns)
 
 
 def _expected_columns(profile: Profile) -> list[str]:
@@ -116,7 +116,7 @@ def _index(
     """Group records by normalized key. Records with a blank key become findings."""
     index: dict[Key, list[Record]] = defaultdict(list)
     for record in table.records:
-        raw = [record.values[c] for c in spec.key]
+        raw = [record.values.get(c) for c in spec.key]
         if any(v is None for v in raw):
             findings.append(_blank(record, spec.key, "is absent"))
             continue
@@ -142,7 +142,7 @@ def _duplicates(table: Table, spec: TableSpec, index: dict[Key, list[Record]]) -
     for key, records in index.items():
         if len(records) < 2:  # noqa: PLR2004 - two records make a duplicate
             continue
-        raw_keys = {tuple(r.values[c] or "" for c in spec.key) for r in records}
+        raw_keys = {tuple(r.values.get(c) or "" for c in spec.key) for r in records}
         ambiguous = len(raw_keys) > 1
         kind = Kind.AMBIGUOUS_KEY if ambiguous else Kind.DUPLICATE_KEY
         detail = (
@@ -217,8 +217,8 @@ def _compare(
 
 
 def _compare_one(spec: CompareSpec, key: Key, exp: Record, col: Record) -> Finding | None:
-    exp_raw = exp.values[spec.expected]
-    col_raw = col.values[spec.collected]
+    exp_raw = exp.values.get(spec.expected)
+    col_raw = col.values.get(spec.collected)
     if exp_raw is not None and col_raw is not None:
         exp_value = normalize(exp_raw, spec.normalize)
         col_value = normalize(col_raw, spec.normalize)
@@ -260,7 +260,7 @@ def _source_counts(spec: CollectionSpec, collected: Table) -> Counter[str]:
     return Counter(
         normalize(v, ("strip", "casefold"))
         for r in collected.records
-        if (v := r.values[column]) is not None
+        if (v := r.values.get(column)) is not None
     )
 
 
@@ -297,7 +297,7 @@ def _freshness(
         return
     limit = timedelta(hours=spec.max_age_hours)
     for record in collected.records:
-        raw = record.values[column]
+        raw = record.values.get(column)
         when = parse_timestamp(raw, assume_utc=spec.naive_timestamps == "utc")
         if when is None:
             yield Finding(
@@ -361,18 +361,21 @@ def _truncation(
             Unknown(check="paging truncation", reason="Not checked: no page sizes configured.")
         )
         return
-    groups: dict[str, int] = {"(all records)": len(collected.records)}
-    groups.update(_source_counts(spec, collected))
-    for group, records in groups.items():
+    # The overall count is a separate entry, so no source name can replace it.
+    groups: list[tuple[str | None, int]] = [(None, len(collected.records))]
+    groups.extend(_source_counts(spec, collected).items())
+    for source, records in groups:
         sizes = [p for p in spec.page_sizes if records and records % p == 0]
         if sizes:
+            details = {"records": str(records), "page_sizes": _join(sizes)}
+            details |= {"scope": "all records"} if source is None else {"source": source}
             yield Finding(
                 kind=Kind.POSSIBLE_TRUNCATION,
                 message=(
                     f"{records} records is an exact multiple of a common page size, "
                     "which can mean a paged export stopped early."
                 ),
-                details={"group": group, "records": str(records), "page_sizes": _join(sizes)},
+                details=details,
             )
 
 
@@ -391,7 +394,7 @@ def _rules(profile: Profile) -> tuple[str, ...]:
     rules.extend(
         f"Compare {c.expected} with {c.collected} after normalization: "
         f"{', '.join(c.normalize) or 'none'}"
-        + (f"; {count(len(c.equivalents), 'equivalent value')}" if c.equivalents else "")
+        + (f"; equivalents: {_equivalents(c)}" if c.equivalents else "")
         + "."
         for c in profile.compare
     )
@@ -409,6 +412,10 @@ def _rules(profile: Profile) -> tuple[str, ...]:
     if spec.page_sizes:
         rules.append(f"Warn when record counts are exact multiples of {_join(spec.page_sizes)}.")
     return tuple(rules)
+
+
+def _equivalents(spec: CompareSpec) -> str:
+    return ", ".join(f"{k} = {v}" for k, v in spec.equivalents.items())
 
 
 def _sort_key(finding: Finding) -> tuple[int, tuple[str, ...], tuple[tuple[str, str, int], ...]]:

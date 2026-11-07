@@ -19,7 +19,12 @@ concurrency:
 jobs:
   build:
     name: Build site
-    if: vars.FO_PUBLIC == 'true'
+    # Publish only from main, and only when the repository really is public:
+    # the variable and the actual visibility must agree.
+    if: >-
+      vars.FO_PUBLIC == 'true'
+      && github.event.repository.private == false
+      && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

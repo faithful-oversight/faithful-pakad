@@ -150,20 +150,6 @@ jobs:
           enable-cache: false
       - run: uv sync --locked
       - run: scripts/check.sh build
-      - name: Smoke-test the built wheel in a clean environment
-        run: |
-          uv venv --clear "$RUNNER_TEMP/smoke"
-          uv pip install --python "$RUNNER_TEMP/smoke" dist/*.whl
-          pakad="$RUNNER_TEMP/smoke/bin/pakad"
-          "$pakad" --version
-          "$pakad" example "$RUNNER_TEMP/demo"
-          status=0
-          "$pakad" reconcile -p "$RUNNER_TEMP/demo/profile.toml" -e "$RUNNER_TEMP/demo/expected.csv" \
-            -c "$RUNNER_TEMP/demo/collected.csv" -o "$RUNNER_TEMP/demo/report" \
-            --as-of 2026-11-07T12:00:00Z || status=$?
-          test "$status" -eq 1
-          test -s "$RUNNER_TEMP/demo/report/pakad-report.html"
-          "$pakad" schema > /dev/null
 
   pull-request:
     name: Pull request title and sign-off
@@ -223,14 +209,15 @@ jobs:
     needs: [static, test, docs, links, security, build, pull-request, dependency-review]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
-      - name: Fail if any required job failed or was cancelled
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require success from core jobs; allow only intended skips
+        # Core jobs must succeed. Only these may be skipped: pull-request (runs on
+        # pull requests only) and dependency-review (needs a public repository).
         env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: |
-          echo "$RESULTS"
-          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then
-            echo "::error::one or more required jobs did not pass"
-            exit 1
-          fi
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/check_needs.py

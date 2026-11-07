@@ -5,7 +5,11 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
+import subprocess
 import sys
+import uuid
 from datetime import UTC, datetime
 from enum import IntEnum
 from importlib.resources import files
@@ -133,10 +137,20 @@ def _run(args: argparse.Namespace) -> int:
     collected = read_table(
         args.collected, profile.collected, Side.COLLECTED, max_bytes=args.max_bytes
     )
-    now = datetime.now(UTC)
+    # Whole seconds keep the default reference time readable. A time given with
+    # --as-of is used and recorded at full precision.
+    now = datetime.now(UTC).replace(microsecond=0)
     as_of = args.as_of or now
     result = reconcile(profile, expected, collected, as_of=as_of)
-    report = build_report(result, profile, expected, collected, as_of=as_of, generated_at=now)
+    report = build_report(
+        result,
+        profile,
+        expected,
+        collected,
+        as_of=as_of,
+        generated_at=now,
+        run_id=uuid.uuid4().hex,
+    )
 
     written = write_files(args.out_dir, render_all(report, args.format), force=args.force)
     print(terminal_summary(report))  # noqa: T201
@@ -161,18 +175,34 @@ EXAMPLE_FILES = ("profile.toml", "expected.csv", "collected.csv")
 
 def _example(directory: Path, *, force: bool) -> int:
     write_files(directory, {name: _resource(f"data/{name}") for name in EXAMPLE_FILES}, force=force)
-    d = directory
-    print(f"Wrote a synthetic example to {d}. Try it:\n")  # noqa: T201
-    print(  # noqa: T201
-        f"  pakad reconcile -p {d / 'profile.toml'} -e {d / 'expected.csv'} "
-        f"-c {d / 'collected.csv'} -o {d / 'report'} --as-of 2026-11-07T12:00:00Z"
+    command = _command_line(
+        "pakad",
+        "reconcile",
+        "-p",
+        str(directory / "profile.toml"),
+        "-e",
+        str(directory / "expected.csv"),
+        "-c",
+        str(directory / "collected.csv"),
+        "-o",
+        str(directory / "report"),
+        "--as-of",
+        "2026-11-07T12:00:00Z",
     )
+    print(terminal(f"Wrote a synthetic example to {directory}. Try it:\n\n  {command}"))  # noqa: T201
     return ExitCode.OK
+
+
+def _command_line(*parts: str) -> str:
+    """Quote a command for copying into this platform's usual shell."""
+    if os.name == "nt":
+        return subprocess.list2cmdline(parts)
+    return shlex.join(parts)
 
 
 def _check_profile(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
-    print(f"{args.profile}: valid profile {profile.name!r}")  # noqa: T201
+    print(terminal(f"{args.profile}: valid profile {profile.name!r}"))  # noqa: T201
     return ExitCode.OK
 
 

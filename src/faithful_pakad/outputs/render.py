@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from faithful_pakad.outputs import Report
 
-CSV_COLUMNS = ("id", "kind", "severity", "key", "source", "message", "details")
+CSV_COLUMNS = ("id", "kind", "severity", "key", "source", "message", "details", "run_id")
 
 MAX_SHOWN_PER_KIND = 500
 """HTML and Markdown reports show at most this many findings of each kind.
@@ -150,6 +150,7 @@ def render_csv(report: Report) -> str:
             _refs_text(f["refs"]),
             f["message"],
             _details_text(f["details"]),
+            report["run_id"],
         )
         writer.writerow([csv_cell(cell) for cell in row])
     return buffer.getvalue()
@@ -211,7 +212,7 @@ def render_markdown(report: Report) -> str:
         "",
         (
             f"Reference time {md(report['as_of'])}. Generated {md(report['generated_at'])} "
-            f"by pakad {md(report['tool']['version'])}."
+            f"by pakad {md(report['tool']['version'])}. Run ID `{md(report['run_id'])}`."
         ),
         "",
         f"> {md(LIMIT_NOTE)}",
@@ -406,7 +407,8 @@ def render_html(report: Report) -> str:
 <h3>Verify the inputs</h3>
 <p>{_h(VERIFY_NOTE)}</p>
 <ul>{verify}</ul></section>
-<footer>Report schema version {_h(report["schema_version"])}.
+<footer>Run ID <code>{_h(report["run_id"])}</code>, shared by every file from this run.
+Report schema version {_h(report["schema_version"])}.
 Produced by pakad, an open source tool from Faithful Oversight, LLC.</footer>
 </main>
 </body>

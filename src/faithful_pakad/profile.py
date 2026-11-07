@@ -112,10 +112,11 @@ class _Section:
         value = self._data.pop(name, None)
         if value is None:
             return None
+        # Compare before any float conversion: TOML integers can be arbitrarily large.
         if (
             isinstance(value, bool)
             or not isinstance(value, int | float)
-            or not math.isfinite(value)
+            or (isinstance(value, float) and not math.isfinite(value))
             or not 0 < value <= MAX_AGE_HOURS
         ):
             self.error(name, f"must be a number greater than 0 and at most {MAX_AGE_HOURS}")
@@ -272,7 +273,8 @@ def parse_profile(text: str, *, file: str = "<profile>", sha256: str = "") -> Pr
         raise ProfileError(msg) from exc
     root = _Section(data, "profile")
     version = root.raw("version")
-    if version != SUPPORTED_VERSION:
+    # The exact type matters: Python treats true and 1.0 as equal to 1.
+    if type(version) is not int or version != SUPPORTED_VERSION:
         msg = f"profile.version must be {SUPPORTED_VERSION}"
         raise ProfileError(msg)
     name = root.string("name") or "unnamed profile"

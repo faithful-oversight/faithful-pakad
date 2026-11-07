@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 MAX_FIELD_CHARS = 1024 * 1024
 JSON_LIST_KEYS = ("value", "records")
+MAX_JSON_DEPTH = 64
+"""Nested JSON values deeper than this are an input error, on every Python version."""
 _SURROGATE = re.compile("[\ud800-\udfff]")
 
 csv.field_size_limit(MAX_FIELD_CHARS)
@@ -116,8 +118,8 @@ def _read_csv(
                     f"{name}: line {start} has {len(row)} fields but the header has {len(columns)}"
                 )
                 raise InputError(msg)
-            values: dict[str, Value] = dict.fromkeys(columns)
-            values.update(zip(columns, row, strict=False))
+            # Short rows store only the fields present; absent columns read as None.
+            values: dict[str, Value] = dict(zip(columns, row, strict=False))
             records.append(Record(SourceRef(side, name, start), values))
     except csv.Error as exc:
         msg = f"{name}: malformed CSV near line {reader.line_num}: {exc}"
@@ -145,14 +147,24 @@ class _Number(str):
     __slots__ = ()
 
 
-def _clean(text: str) -> str:
-    """Replace lone surrogates, which JSON allows but UTF-8 cannot encode."""
-    return _SURROGATE.sub("\ufffd", text)
+class _UnusableValueError(ValueError):
+    """A JSON value pakad will not turn into text."""
+
+
+def _check_text(text: str) -> str:
+    r"""Reject strings with unpaired surrogate escapes such as ``\ud800``.
+
+    JSON allows them, but they are not valid Unicode text. Replacing them would
+    make different identifiers look identical, so pakad refuses them instead.
+    """
+    if _SURROGATE.search(text):
+        msg = "contains an unpaired surrogate escape, which is not valid Unicode text"
+        raise _UnusableValueError(msg)
+    return text
 
 
 def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    pairs = [(_clean(k), v) for k, v in pairs]
-    keys = [k for k, _ in pairs]
+    keys = [_check_text(k) for k, _ in pairs]
     if len(set(keys)) != len(keys):
         msg = "an object repeats a property name"
         raise ValueError(msg)
@@ -200,44 +212,55 @@ def _read_json(text: str, name: str, side: Side) -> tuple[tuple[str, ...], tuple
     if "" in columns:
         msg = f"{name}: an object has an empty property name"
         raise InputError(msg)
-    ordered = tuple(columns)
     records = tuple(
-        Record(
-            SourceRef(side, name, index, "item"),
-            dict.fromkeys(ordered) | {k.strip(): _json_text(v) for k, v in item.items()},
-        )
+        Record(SourceRef(side, name, index, "item"), _json_values(item, name, index))
         for index, item in enumerate(rows, start=1)
     )
-    return ordered, records
+    return tuple(columns), records
+
+
+def _json_values(item: dict[str, Any], name: str, index: int) -> dict[str, Value]:
+    """Convert one JSON object. Only properties present are stored."""
+    values: dict[str, Value] = {}
+    for key, raw in item.items():
+        try:
+            values[key.strip()] = _json_text(raw)
+        except _UnusableValueError as exc:
+            msg = f"{name}: item {index}, property {key.strip()!r} {exc}"
+            raise InputError(msg) from exc
+    return values
 
 
 def _json_text(value: object) -> Value:
     """Turn a JSON value into text without guessing at types.
 
     Numbers keep the exact text from the file, so ``1.0`` stays ``1.0``. Nested
-    arrays and objects become compact JSON text.
+    arrays and objects become compact JSON text, up to ``MAX_JSON_DEPTH`` levels.
     """
     if value is None:
         return None
     if isinstance(value, str):
-        return value if isinstance(value, _Number) else _clean(value)
-    return _compact(value)
+        return value if isinstance(value, _Number) else _check_text(value)
+    return _compact(value, 1)
 
 
-def _compact(value: object) -> str:
+def _compact(value: object, depth: int) -> str:
+    if depth > MAX_JSON_DEPTH:
+        msg = f"is nested more than {MAX_JSON_DEPTH} levels deep"
+        raise _UnusableValueError(msg)
     if isinstance(value, _Number):
         return str(value)
     if isinstance(value, str):
-        return json.dumps(_clean(value), ensure_ascii=False)
+        return json.dumps(_check_text(value), ensure_ascii=False)
     if isinstance(value, bool):
         return "true" if value else "false"
     if value is None:
         return "null"
     if isinstance(value, list):
-        return "[" + ", ".join(_compact(v) for v in value) + "]"
+        return "[" + ", ".join(_compact(v, depth + 1) for v in value) + "]"
     if isinstance(value, dict):
         items = sorted(value.items())
-        pairs = (f"{json.dumps(k, ensure_ascii=False)}: {_compact(v)}" for k, v in items)
+        pairs = (f"{json.dumps(k, ensure_ascii=False)}: {_compact(v, depth + 1)}" for k, v in items)
         return "{" + ", ".join(pairs) + "}"
     # json.loads produces no other types.
     msg = f"unexpected JSON value type {type(value).__name__}"  # pragma: no cover

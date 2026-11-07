@@ -9,6 +9,7 @@ import os
 import runpy
 import stat
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,7 +20,6 @@ from tests.conftest import EXAMPLE_DIR, MINIMAL_PROFILE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 AS_OF = "2026-11-07T12:00:00Z"
 SAMPLE_DIR = EXAMPLE_DIR / "sample-report"
@@ -50,8 +50,13 @@ def stable(directory: Path, name: str) -> str:
     version = json.loads((directory / "pakad-report.json").read_text(encoding="utf-8"))["tool"][
         "version"
     ]
+    run_id = json.loads((directory / "pakad-report.json").read_text(encoding="utf-8"))["run_id"]
     text = (directory / name).read_text(encoding="utf-8")
-    return text.replace(generated, "<generated>").replace(version, "<version>")
+    return (
+        text.replace(generated, "<generated>")
+        .replace(version, "<version>")
+        .replace(run_id, "<run-id>")
+    )
 
 
 def test_example_matches_committed_sample_reports(
@@ -214,19 +219,123 @@ def test_no_partial_reports_when_a_target_exists(
     assert "already exists; use --force" in capsys.readouterr().err
 
 
-def test_failed_write_leaves_old_reports_and_no_temp_files(
+@pytest.mark.parametrize("fail_after", [0, 1, 3, 5])
+def test_failed_publish_restores_the_complete_old_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    fail_after: int,
+) -> None:
+    """Fail after some files are already swapped in: the old set must come back intact."""
+    assert main(example_args(tmp_path)) == ExitCode.FINDINGS
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    real_replace = Path.replace
+    calls = {"n": 0}
+
+    def flaky(self: Path, target: Path) -> Path:
+        calls["n"] += 1
+        if calls["n"] > fail_after and ".pakad-old-" not in self.name:
+            raise OSError(28, "No space left on device")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky)
+    assert main(example_args(tmp_path, "--force")) == ExitCode.INPUT_ERROR
+    assert "the directory is unchanged" in capsys.readouterr().err
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_a_directory_at_a_report_name_is_refused_before_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pakad-report.json").mkdir()
+    assert main(example_args(tmp_path, "--force")) == ExitCode.INPUT_ERROR
+    assert "is a directory" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pakad-report.json"]
+
+
+def test_a_file_appearing_during_publish_is_not_overwritten(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / "pakad-report.json").write_text("old evidence")
+    """Without --force, a report name taken after the first check is left alone."""
+    real_link = os.link
 
-    def fail(*_: object) -> None:
-        raise OSError(28, "No space left on device")
+    def racing_link(src: str, dst: str) -> None:
+        if str(dst).endswith("pakad-report.json"):
+            Path(dst).write_text("someone else")
+        real_link(src, dst)
 
-    monkeypatch.setattr("pathlib.Path.replace", fail)
-    assert main(example_args(tmp_path, "--force")) == ExitCode.INPUT_ERROR
-    assert "No space left on device" in capsys.readouterr().err
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["pakad-report.json"]
-    assert (tmp_path / "pakad-report.json").read_text() == "old evidence"
+    monkeypatch.setattr(os, "link", racing_link)
+    assert main(example_args(tmp_path)) == ExitCode.INPUT_ERROR
+    assert "appeared while writing" in capsys.readouterr().err
+    assert [p.name for p in tmp_path.iterdir()] == ["pakad-report.json"]
+    assert (tmp_path / "pakad-report.json").read_text() == "someone else"
+
+
+def test_publish_without_hard_links_still_refuses_to_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_links(*_: object) -> None:
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "link", no_links)
+    assert main(example_args(tmp_path, "-f", "json")) == ExitCode.FINDINGS
+    assert json.loads((tmp_path / "pakad-report.json").read_text())["tool"]["name"] == "pakad"
+    assert main(example_args(tmp_path, "-f", "json")) == ExitCode.INPUT_ERROR
+
+
+def test_recorded_reference_time_reproduces_the_findings(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path
+) -> None:
+    """Replaying with the as_of a report records gives identical findings."""
+    profile = write(
+        "p.toml",
+        MINIMAL_PROFILE + "[collection]\npage_sizes = []\ncaptured_at_column = 't'\n"
+        "max_age_hours = 1\n",
+    )
+    exp = write("e.csv", "id\n1\n")
+    col = write("c.csv", "uid,t\n1,2026-11-07T11:00:00.5Z\n")
+    base = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-f", "json"]
+    first = tmp_path / "first"
+    assert main([*base, "-o", str(first), "--as-of", "2026-11-07T12:00:00.6Z"]) == 1
+    report = json.loads((first / "pakad-report.json").read_text())
+    assert report["as_of"] == "2026-11-07T12:00:00.600000+00:00"
+    again = tmp_path / "again"
+    assert main([*base, "-o", str(again), "--as-of", report["as_of"]]) == 1
+    replay = json.loads((again / "pakad-report.json").read_text())
+    assert [f["kind"] for f in replay["findings"]] == [f["kind"] for f in report["findings"]]
+    assert [f["kind"] for f in report["findings"]] == ["stale-record"]
+
+
+def test_every_report_file_shares_one_run_id(tmp_path: Path) -> None:
+    main(example_args(tmp_path))
+    run_id = json.loads((tmp_path / "pakad-report.json").read_text())["run_id"]
+    for name in ("pakad-report.html", "pakad-findings.csv", "pakad-report.md"):
+        assert run_id in (tmp_path / name).read_text()
+    other = tmp_path / "other"
+    main(example_args(other))
+    assert json.loads((other / "pakad-report.json").read_text())["run_id"] != run_id
+
+
+def test_example_command_is_quoted_for_paths_with_spaces(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "my demo"
+    assert main(["example", str(target)]) == ExitCode.OK
+    out = capsys.readouterr().out
+    quoted = f'"{target / "profile.toml"}"' if os.name == "nt" else f"'{target / 'profile.toml'}'"
+    assert quoted in out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not allow control characters in names")
+def test_success_messages_cannot_inject_terminal_codes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "x\x1b[2Jy"
+    assert main(["example", str(target)]) == ExitCode.OK
+    assert main(["check-profile", str(target / "profile.toml")]) == ExitCode.OK
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "\\u001b" in out
 
 
 @pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")

@@ -27,8 +27,9 @@ SPEC = TableSpec(key=("id",))
 
 
 def read(path: Path, spec: TableSpec = SPEC, **kwargs: int) -> list[dict[str, str | None]]:
+    """Read a file and return each record with every column, absent ones as None."""
     table = read_table(path, spec, Side.EXPECTED, **kwargs)
-    return [dict(r.values) for r in table.records]
+    return [{c: r.values.get(c) for c in table.columns} for r in table.records]
 
 
 def test_csv_keeps_every_value_as_text(write: Callable[[str, str | bytes], Path]) -> None:
@@ -138,10 +139,51 @@ def test_json_numbers_keep_their_exact_text(write: Callable[[str, str | bytes], 
     assert rows[0]["n"] == '{"a": -0, "b": [2.50, true, null, "s"]}'
 
 
-def test_json_lone_surrogates_are_replaced(write: Callable[[str, str | bytes], Path]) -> None:
-    rows = read(write("a.json", '[{"id": "x\\ud800y", "k\\udfff": "1"}]'))
-    assert rows[0]["id"] == "x\ufffdy"
-    assert "k\ufffd" in rows[0]
+@pytest.mark.parametrize(
+    "content",
+    [
+        '[{"id": "x\\ud800y"}]',
+        '[{"k\\udfff": "1"}]',
+        '[{"id": "1", "extra": ["\\ud801"]}]',
+        '[{"id": "1", "extra": {"\\udc00": 1}}]',
+    ],
+)
+def test_json_unpaired_surrogates_are_input_errors(
+    write: Callable[[str, str | bytes], Path], content: str
+) -> None:
+    """Replacing them would let two different invalid identifiers match silently."""
+    with pytest.raises(InputError, match="unpaired surrogate"):
+        read(write("a.json", content))
+
+
+def test_json_valid_surrogate_pairs_still_decode(write: Callable[[str, str | bytes], Path]) -> None:
+    assert read(write("a.json", '[{"id": "\\ud83d\\ude00"}]')) == [{"id": chr(0x1F600)}]
+
+
+def test_json_nesting_limit_applies_after_decoding(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    """A value the decoder accepts but that is too deep is an input error, even if unused."""
+    deep = "[" * 500 + "0" + "]" * 500
+    with pytest.raises(InputError, match=r"item 1, property 'extra' is nested more than 64"):
+        read(write("a.json", '[{"id": "a", "extra": ' + deep + "}]"))
+    ok = "[" * 63 + "0" + "]" * 63
+    assert read(write("b.json", '[{"id": "a", "extra": ' + ok + "}]"))[0]["extra"] == ok
+
+
+def test_sparse_records_store_only_present_fields(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    """Memory stays linear when every record has different columns."""
+    rows = 3000
+    data = json.dumps([{"id": str(i), f"c{i}": "x"} for i in range(rows)])
+    table = read_table(write("s.json", data), SPEC, Side.EXPECTED)
+    assert len(table.columns) == rows + 1
+    assert sum(len(r.values) for r in table.records) == 2 * rows
+    csv_text = "id," + ",".join(f"c{i}" for i in range(rows)) + "\n" + "1\n" * rows
+    table = read_table(write("s.csv", csv_text), SPEC, Side.EXPECTED)
+    assert sum(len(r.values) for r in table.records) == rows
+    assert table.records[0].values.get("c5") is None
 
 
 def test_json_value_wrapper_and_item_refs(write: Callable[[str, str | bytes], Path]) -> None:

@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     from faithful_pakad.profile import Profile
 
 SCHEMA_VERSION = "1.0"
-SCHEMA_ID = "https://github.com/faithful-oversight/faithful-pakad/blob/main/src/faithful_pakad/schema/report-v1.schema.json"
+SCHEMA_ID = "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json"
+"""Identifier of the report schema. ``pakad schema`` prints the same schema offline."""
 
 Report = dict[str, Any]
 
@@ -33,6 +34,7 @@ def build_report(  # noqa: PLR0913 - each argument is a distinct part of the rep
     *,
     as_of: datetime,
     generated_at: datetime,
+    run_id: str,
 ) -> Report:
     """Build the report document that every output format is rendered from."""
     counts = dict.fromkeys((k.value for k in KIND_ORDER), 0)
@@ -43,8 +45,10 @@ def build_report(  # noqa: PLR0913 - each argument is a distinct part of the rep
         "$schema": SCHEMA_ID,
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "pakad", "version": __version__},
+        "run_id": run_id,
         "generated_at": generated_at.isoformat(timespec="seconds"),
-        "as_of": as_of.isoformat(timespec="seconds"),
+        # Full precision, so replaying with --as-of reproduces the same findings.
+        "as_of": as_of.isoformat(),
         "profile": {"name": profile.name, "file": profile.file, "sha256": profile.sha256},
         "inputs": {"expected": _input(expected), "collected": _input(collected)},
         "summary": {
@@ -88,5 +92,8 @@ def _ref(ref: SourceRef) -> dict[str, Any]:
 
 
 def format_ref(ref: dict[str, Any]) -> str:
-    """Render a report reference for people, for example ``collected.csv line 7``."""
-    return f"{ref['file']} {ref.get('unit', 'line')} {ref['row']}"
+    """Render a reference for people, for example ``collected: users.csv line 7``.
+
+    The input name comes first, so two inputs with the same file name stay distinct.
+    """
+    return f"{ref['input']}: {ref['file']} {ref['unit']} {ref['row']}"
