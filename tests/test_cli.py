@@ -261,18 +261,12 @@ def test_error_messages_cannot_inject_terminal_codes(
     write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     profile = write("p.toml", MINIMAL_PROFILE)
-    bad = write("e\x1b[2Jx.csv", "id\n1\n")
-    col = write("c.csv", "other\n1\n")
-    args = [
-        "reconcile",
-        "-p",
-        str(profile),
-        "-e",
-        str(bad),
-        "-c",
-        str(col),
-        "-o",
-        str(tmp_path / "o"),
-    ]
+    exp = write("e.csv", "id\n1\n")
+    # The error message lists the available columns, so a crafted header reaches it.
+    col = write("c.csv", "other\x1b[2J\n1\n")
+    out = tmp_path / "o"
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(out)]
     assert main(args) == ExitCode.INPUT_ERROR
-    assert "\x1b" not in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "\x1b" not in err
+    assert "other\\u001b[2J" in err
