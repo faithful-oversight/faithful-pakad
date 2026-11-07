@@ -25,5 +25,5 @@ The tool will not:
 ## Inputs
 
 - CSV and JSON only. Export spreadsheets to CSV first.
-- Each input is read fully into memory. The default size limit is 256 MiB per file, adjustable with `--max-bytes`.
+- Each input is read fully into memory. Memory use is several times the file size, because every value is kept with its source line. The default limit is 256 MiB per file, adjustable with `--max-bytes`; lower it on machines with little memory.
 - JSON input must be an array of objects, or an object with a `value` or `records` array.

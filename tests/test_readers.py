@@ -53,7 +53,7 @@ def test_csv_short_rows_are_absent_not_empty(write: Callable[[str, str | bytes],
 
 
 def test_csv_strips_bom_and_header_spaces(write: Callable[[str, str | bytes], Path]) -> None:
-    assert read(write("a.csv", "﻿ id ,x\n1,2\n".encode())) == [{"id": "1", "x": "2"}]
+    assert read(write("a.csv", "\ufeff id ,x\n1,2\n".encode())) == [{"id": "1", "x": "2"}]
 
 
 def test_tsv_and_explicit_delimiter(write: Callable[[str, str | bytes], Path]) -> None:
@@ -85,7 +85,8 @@ def test_other_encodings(write: Callable[[str, str | bytes], Path]) -> None:
         ("a.json", "[1]", "item 1 is not a JSON object"),
         ("a.json", '[{"": 1}]', "empty property name"),
         ("a.json", '[{"id": 1, " id": 2}]', "item 1 repeats a property name"),
-        ("a.json", "[" * 100000 + "]" * 100000, "not valid JSON"),
+        # Python 3.14 parses very deep nesting that older versions reject.
+        ("a.json", "[" * 100000 + "]" * 100000, "not valid JSON|is not a JSON object"),
     ],
 )
 def test_malformed_inputs_are_input_errors(
@@ -127,6 +128,20 @@ def test_json_values_become_text(write: Callable[[str, str | bytes], Path]) -> N
     }
     assert rows[1]["extra"] == "false"
     assert rows[1]["n"] is None
+
+
+def test_json_numbers_keep_their_exact_text(write: Callable[[str, str | bytes], Path]) -> None:
+    text = '[{"id": 1.0, "big": 1e400, "n": {"b": [2.50, true, null, "s"], "a": -0}}]'
+    rows = read(write("a.json", text))
+    assert rows[0]["id"] == "1.0"
+    assert rows[0]["big"] == "1e400"
+    assert rows[0]["n"] == '{"a": -0, "b": [2.50, true, null, "s"]}'
+
+
+def test_json_lone_surrogates_are_replaced(write: Callable[[str, str | bytes], Path]) -> None:
+    rows = read(write("a.json", '[{"id": "x\\ud800y", "k\\udfff": "1"}]'))
+    assert rows[0]["id"] == "x\ufffdy"
+    assert "k\ufffd" in rows[0]
 
 
 def test_json_value_wrapper_and_item_refs(write: Callable[[str, str | bytes], Path]) -> None:

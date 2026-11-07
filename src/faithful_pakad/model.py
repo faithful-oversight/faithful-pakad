@@ -42,6 +42,7 @@ class Kind(StrEnum):
     STALE_RECORD = "stale-record"
     INVALID_TIMESTAMP = "invalid-timestamp"
     POSSIBLE_TRUNCATION = "possible-truncation"
+    EMPTY_INPUT = "empty-input"
 
 
 SEVERITY: Mapping[Kind, Severity] = {
@@ -55,6 +56,7 @@ SEVERITY: Mapping[Kind, Severity] = {
     Kind.STALE_RECORD: Severity.WARNING,
     Kind.INVALID_TIMESTAMP: Severity.WARNING,
     Kind.POSSIBLE_TRUNCATION: Severity.WARNING,
+    Kind.EMPTY_INPUT: Severity.WARNING,
 }
 
 KIND_ORDER: tuple[Kind, ...] = tuple(Kind)

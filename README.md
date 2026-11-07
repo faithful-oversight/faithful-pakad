@@ -64,7 +64,7 @@ Open `./pakad-demo/report/pakad-report.html` in any browser. The example data is
 | `pakad-findings.csv` | Spreadsheets and ticketing. Protected against formula injection. |
 | `pakad-report.md` | Pull requests, tickets, and change records. |
 
-Exit codes make pakad easy to use in pipelines: `0` no findings, `1` findings, `2` usage error, `3` input or output error. Use `--fail-on error` to pass when there are only warnings.
+Exit codes make pakad easy to use in pipelines: `0` no findings, `1` findings, `2` usage error, `3` input or output error, and `4` an internal error, so a crash is never mistaken for findings. Use `--fail-on error` to pass when there are only warnings.
 
 ## Design principles
 

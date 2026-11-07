@@ -63,7 +63,7 @@ def test_report_matches_schema_with_every_kind() -> None:
     report = make_report(ALL_KINDS, (Unknown("check", EVIL),))
     jsonschema.validate(report, SCHEMA, format_checker=jsonschema.FormatChecker())
     assert report["summary"]["errors"] == 7
-    assert report["summary"]["warnings"] == 3
+    assert report["summary"]["warnings"] == 4
     assert all(n == 1 for n in report["summary"]["findings_by_kind"].values())
     assert report["findings"][0]["id"] == "F00001"
     assert report["findings"][0]["refs"][1] == {
@@ -179,3 +179,48 @@ def test_markdown_escape_never_leaves_raw_markup(value: str) -> None:
 @pytest.mark.parametrize("value", ["@SUM(A1)", "+1", "-1", "\t=x", "\uff1dcmd"])
 def test_known_formula_prefixes(value: str) -> None:
     assert neutralize_formula(value) == "'" + value
+
+
+def test_unknowns_prevent_a_full_pass_headline() -> None:
+    page = render_html(make_report((), (Unknown("source coverage", "Not checked."),)))
+    assert "No findings in the supplied inputs, but 1 check did not run." in page
+    assert "No findings in the supplied inputs, but 1 check did not run." in render_markdown(
+        make_report((), (Unknown("a", "b"),))
+    )
+
+
+def test_large_groups_are_capped_in_people_facing_reports(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("faithful_pakad.outputs.render.MAX_SHOWN_PER_KIND", 1)
+    findings = (Finding(Kind.MISSING, "a", ("1",)), Finding(Kind.MISSING, "b", ("2",)))
+    report = make_report(findings)
+    for text in (render_html(report), render_markdown(report)):
+        assert "1 more finding of this kind are in pakad-report.json" in text
+        assert "F00002" not in text
+    assert "F00002" in render_csv(report)
+    assert len(json.loads(render_json(report))["findings"]) == 2
+
+
+INVISIBLE = "a\x1b[31mred\u202etxt.exe\x00"
+
+
+def test_invisible_characters_are_shown_not_hidden() -> None:
+    finding = Finding(Kind.MISSING, "m", (INVISIBLE,), details={"v": INVISIBLE})
+    report = make_report((finding,))
+    for text in (render_html(report), render_markdown(report), render_csv(report)):
+        assert "\x1b" not in text
+        assert "\u202e" not in text
+        assert "\x00" not in text
+        assert "\\u202e" in text
+        assert "\\u001b" in text
+    assert json.loads(render_json(report))["findings"][0]["key"] == [INVISIBLE]
+    assert "\x1b" not in terminal_summary(make_report((Finding(Kind.MISSING, INVISIBLE),)))
+
+
+def test_markdown_breaks_autolinks() -> None:
+    escaped = escape_markdown("see http://evil.example and www.evil.example or a@evil.example")
+    assert "http://evil" not in escaped
+    assert "www.evil" not in escaped
+    assert "a@evil" not in escaped
+    assert escaped.replace("\u2060", "") == (
+        "see http://evil.example and www.evil.example or a@evil.example"
+    )

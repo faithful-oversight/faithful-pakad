@@ -20,7 +20,7 @@ from faithful_pakad.model import KIND_ORDER, Kind
 from faithful_pakad.normalize import count
 from faithful_pakad.outputs import format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
-from faithful_pakad.outputs.safety import escape_markdown, neutralize_formula
+from faithful_pakad.outputs.safety import csv_cell, escape_markdown, terminal, visible
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from faithful_pakad.outputs import Report
 
 CSV_COLUMNS = ("id", "kind", "severity", "key", "source", "message", "details")
+
+MAX_SHOWN_PER_KIND = 500
+"""HTML and Markdown reports show at most this many findings of each kind.
+
+The JSON and CSV outputs always hold every finding.
+"""
 
 LIMIT_NOTE = (
     "This report covers only what the input files contain. It cannot detect records "
@@ -72,14 +78,33 @@ def _groups(report: Report) -> Iterator[tuple[Kind, list[dict[str, Any]]]]:
 
 
 def _status(report: Report) -> tuple[str, str]:
-    """Return a status class and headline for the report."""
+    """Return a status class and headline for the report.
+
+    A clean result says how many checks did not run, so it is never read as a
+    full pass when part of the review was skipped.
+    """
     s = report["summary"]
     if s["errors"]:
         found = f"{count(s['errors'], 'error')} and {count(s['warnings'], 'warning')}"
         return "fail", f"{found} need review"
     if s["warnings"]:
         return "warn", f"No errors. {count(s['warnings'], 'warning')} need review"
+    if report["unknowns"]:
+        skipped = count(len(report["unknowns"]), "check")
+        return "warn", f"No findings in the supplied inputs, but {skipped} did not run"
     return "pass", "No findings in the supplied inputs"
+
+
+def _shown(findings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Limit a group of findings for people-facing reports. Returns shown and hidden."""
+    return findings[:MAX_SHOWN_PER_KIND], max(0, len(findings) - MAX_SHOWN_PER_KIND)
+
+
+def _hidden_note(hidden: int) -> str:
+    return (
+        f"{count(hidden, 'more finding')} of this kind are in pakad-report.json "
+        "and pakad-findings.csv."
+    )
 
 
 def _summary_rows(report: Report) -> list[tuple[str, str]]:
@@ -126,7 +151,7 @@ def render_csv(report: Report) -> str:
             f["message"],
             _details_text(f["details"]),
         )
-        writer.writerow([neutralize_formula(cell) for cell in row])
+        writer.writerow([csv_cell(cell) for cell in row])
     return buffer.getvalue()
 
 
@@ -145,10 +170,11 @@ def _md_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str
 def _md_findings(report: Report) -> list[str]:
     md = escape_markdown
     lines: list[str] = []
-    for kind, findings in _groups(report):
+    for kind, all_findings in _groups(report):
         guide = GUIDANCE[kind]
+        findings, hidden = _shown(all_findings)
         lines += [
-            f"### {md(guide.title)} ({len(findings)})",
+            f"### {md(guide.title)} ({len(all_findings)})",
             "",
             f"`{kind.value}`, {findings[0]['severity']}. {md(guide.meaning)}",
             "",
@@ -168,6 +194,8 @@ def _md_findings(report: Report) -> list[str]:
             ),
             "",
         ]
+        if hidden:
+            lines += [f"*{md(_hidden_note(hidden))}*", ""]
     return lines or ["No findings.", ""]
 
 
@@ -274,7 +302,7 @@ NAV = "".join(
 
 
 def _h(value: object) -> str:
-    return html.escape(str(value), quote=True)
+    return html.escape(visible(str(value)), quote=True)
 
 
 def _html_table(
@@ -312,19 +340,21 @@ def _html_cards(report: Report) -> str:
 
 def _html_findings(report: Report) -> str:
     groups = []
-    for kind, findings in _groups(report):
+    for kind, all_findings in _groups(report):
         guide = GUIDANCE[kind]
+        findings, hidden = _shown(all_findings)
         severity = findings[0]["severity"]
+        note = f"<p><em>{_h(_hidden_note(hidden))}</em></p>" if hidden else ""
         rows = [
             (f["id"], _key_text(f["key"]), _refs_text(f["refs"]), _details_text(f["details"]))
             for f in findings
         ]
         groups.append(
             f'<details open id="{_h(kind.value)}"><summary>{_h(guide.title)} '
-            f'<span class="pill {_h(severity)}">{len(findings)} {_h(severity)}</span></summary>'
+            f'<span class="pill {_h(severity)}">{len(all_findings)} {_h(severity)}</span></summary>'
             f'<div class="group"><p>{_h(guide.meaning)} <code>{_h(kind.value)}</code></p>'
             f"<p><strong>What to do:</strong> {_h(guide.next_step)}</p>"
-            f"{_html_table(('ID', 'Key', 'Source', 'Details'), rows)}</div></details>"
+            f"{_html_table(('ID', 'Key', 'Source', 'Details'), rows)}{note}</div></details>"
         )
     return "".join(groups) or "<p>No findings.</p>"
 
@@ -417,4 +447,4 @@ def terminal_summary(report: Report) -> str:
     ]
     if report["unknowns"]:
         lines.append(f"{count(len(report['unknowns']), 'check')} not verified; see the report.")
-    return "\n".join(lines)
+    return terminal("\n".join(lines))

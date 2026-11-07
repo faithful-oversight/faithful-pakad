@@ -193,7 +193,8 @@
             "missing-source",
             "stale-record",
             "invalid-timestamp",
-            "possible-truncation"
+            "possible-truncation",
+            "empty-input"
           ],
           "properties": {
             "missing": {
@@ -233,6 +234,10 @@
               "minimum": 0
             },
             "possible-truncation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "empty-input": {
               "type": "integer",
               "minimum": 0
             }
@@ -295,7 +300,8 @@
               "missing-source",
               "stale-record",
               "invalid-timestamp",
-              "possible-truncation"
+              "possible-truncation",
+              "empty-input"
             ]
           },
           "severity": {

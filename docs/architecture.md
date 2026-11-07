@@ -23,7 +23,7 @@ inputs       ──► readers   CSV and JSON to text-only tables, with source l
 | `normalize` | Named, explicit normalization steps. |
 | `reconcile` | Matching and every check. No file access, no output, no clock. |
 | `model` | Data types and the finding kinds, which are part of the output contract. |
-| `outputs` | Build the report document, and render each format with format-specific escaping. |
+| `outputs` | Build the report document, render each format with format-specific escaping, and write files all at once. |
 | `cli` | Command-line interface. |
 
 ## Rules the design follows
@@ -32,7 +32,8 @@ inputs       ──► readers   CSV and JSON to text-only tables, with source l
 - **One report document.** Every format is rendered from the same document, so the formats cannot disagree.
 - **A versioned contract.** The JSON report follows a published JSON Schema. See [Reports and findings](output.md) for the compatibility promise.
 - **No prompts.** pakad never asks questions, so it runs unchanged in scripts and pipelines.
-- **Structured exit codes.** `0` success, `1` findings, `2` usage error, `3` input or output error.
+- **Structured exit codes.** `0` success, `1` findings, `2` usage error, `3` input or output error, `4` internal error.
+- **All or nothing output.** Reports are written to temporary files and moved into place together, so a failed run never leaves partial evidence.
 - **Unknowns are results.** When pakad cannot check something, it reports it as not verified, never as passed.
 - **Read-only and offline.** No network code and no telemetry.
 

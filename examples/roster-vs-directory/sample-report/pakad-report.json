@@ -5,7 +5,7 @@
     "name": "pakad",
     "version": "0.1.0"
   },
-  "generated_at": "2026-11-07T20:23:13+00:00",
+  "generated_at": "2026-11-07T20:33:07+00:00",
   "as_of": "2026-11-07T12:00:00+00:00",
   "profile": {
     "name": "HR roster vs directory export",
@@ -55,7 +55,8 @@
       "missing-source": 1,
       "stale-record": 1,
       "invalid-timestamp": 1,
-      "possible-truncation": 0
+      "possible-truncation": 0,
+      "empty-input": 0
     }
   },
   "rules": [
@@ -89,7 +90,8 @@
         }
       ],
       "details": {
-        "key_columns": "employee_id"
+        "key_columns": "employee_id",
+        "raw_key": "000106"
       }
     },
     {
@@ -109,7 +111,8 @@
         }
       ],
       "details": {
-        "key_columns": "employeeID"
+        "key_columns": "employeeID",
+        "raw_key": "000110"
       }
     },
     {
@@ -226,7 +229,7 @@
       "id": "F00008",
       "kind": "stale-record",
       "severity": "warning",
-      "message": "Record was captured 78.0 hours before the reference time.",
+      "message": "Record was captured 3.2 days before the reference time.",
       "key": null,
       "refs": [
         {

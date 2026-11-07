@@ -126,7 +126,11 @@ def test_field_compare_with_equivalents() -> None:
 
 def test_absent_values_never_match() -> None:
     result = run(COMPARE, [{"id": "1", "status": None}], [{"uid": "1", "enabled": None}])
-    assert only(result, Kind.FIELD_MISMATCH).details["expected_value"] == "(absent)"
+    mismatch = only(result, Kind.FIELD_MISMATCH)
+    assert mismatch.details["expected_value"] == "(absent)"
+    assert "both absent" in mismatch.message
+    result = run(COMPARE, [{"id": "1", "status": "x"}], [{"uid": "1", "enabled": None}])
+    assert "differ" in only(result, Kind.FIELD_MISMATCH).message
 
 
 def test_compare_skips_duplicates_and_says_so() -> None:
@@ -181,7 +185,7 @@ def test_naive_timestamps_can_be_utc() -> None:
 def test_stale_details() -> None:
     result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2026-11-04T12:00:00Z"}])
     stale = only(result, Kind.STALE_RECORD)
-    assert "72.0 hours" in stale.message
+    assert "3.0 days" in stale.message
     assert stale.details["max_age_hours"] == "24"
 
 
@@ -195,7 +199,33 @@ def test_possible_truncation_overall_and_per_source() -> None:
 
 def test_empty_export_is_not_flagged_as_truncated() -> None:
     result = run(MINIMAL_PROFILE + "[collection]\npage_sizes = [2]\n", [{"id": "1"}], [])
-    assert kinds(result) == [Kind.MISSING]
+    assert kinds(result) == [Kind.MISSING, Kind.EMPTY_INPUT]
+
+
+def test_empty_inputs_are_never_a_clean_result() -> None:
+    result = run(NO_PAGING, [], [])
+    assert kinds(result) == [Kind.EMPTY_INPUT, Kind.EMPTY_INPUT]
+    assert [f.details["input"] for f in result.findings] == ["expected", "collected"]
+
+
+def test_future_capture_times_are_invalid() -> None:
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2026-11-07T12:04:00Z"}])
+    assert result.findings == ()
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2030-01-01T00:00:00Z"}])
+    assert "later than the reference time" in only(result, Kind.INVALID_TIMESTAMP).message
+
+
+def test_stale_ages_under_two_days_use_hours() -> None:
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2026-11-06T06:00:00Z"}])
+    assert "30.0 hours" in only(result, Kind.STALE_RECORD).message
+
+
+def test_missing_and_unexpected_show_the_raw_key() -> None:
+    text = NO_PAGING + '[match]\nnormalize = ["strip", "casefold"]\n'
+    result = run(text, [{"id": "  ALICE "}], [{"uid": "bob"}])
+    assert only(result, Kind.MISSING).details["raw_key"] == "  ALICE "
+    assert only(result, Kind.MISSING).key == ("alice",)
+    assert only(result, Kind.UNEXPECTED).details["raw_key"] == "bob"
 
 
 def test_unknowns_list_unconfigured_checks() -> None:

@@ -36,12 +36,12 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 
 pakad picks the format from the file extension: `.csv`, `.tsv`, and `.txt` are read as delimited text, and `.json` as JSON. Set `format` in the profile to override.
 
-- **CSV:** the first row is the header. Values are never converted, so `000123` stays `000123`. A row with fewer fields than the header has the missing values recorded as absent, which differs from empty.
-- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers and booleans become text, `null` is absent, and nested values become JSON text.
+- **CSV:** the first row is the header. Values are never converted, so `000123` stays `000123`. A row with fewer fields than the header has the missing values recorded as absent, which differs from empty. A row with more fields than the header stops the run with an input error that names the line, because pakad cannot tell which value belongs to which column.
+- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested values become compact JSON text. Repeated property names are an input error.
 
 ### Report files
 
-pakad writes these files into the output directory, readable only by your user account on Linux and macOS:
+pakad writes these files into the output directory, readable only by your user account on Linux and macOS. It writes all of them or none: if any file cannot be written, earlier reports in the directory stay as they were.
 
 | File | Format |
 | --- | --- |
@@ -58,6 +58,7 @@ pakad writes these files into the output directory, readable only by your user a
 | `1` | Findings reached the `--fail-on` threshold. |
 | `2` | The command was used incorrectly, for example an unknown option. |
 | `3` | An input or output problem: a missing or malformed file, an invalid profile, or a report file that already exists. |
+| `4` | An internal error in pakad. This is a bug; please report it. |
 
 ## Use in a pipeline
 

@@ -85,4 +85,11 @@ GUIDANCE: dict[Kind, Guidance] = {
         "Compare the count with the source system's own total. If they match, the warning "
         "can be ignored.",
     ),
+    Kind.EMPTY_INPUT: Guidance(
+        "Empty inputs",
+        "An input file has a header but no records. Comparing against an empty file "
+        "finds nothing, which can look like a clean result.",
+        "Confirm the export ran and the population really is empty before relying on "
+        "the rest of the report.",
+    ),
 }

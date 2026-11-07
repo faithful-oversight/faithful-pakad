@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -17,10 +16,12 @@ from faithful_pakad import __version__
 from faithful_pakad.errors import PakadError
 from faithful_pakad.model import Severity, Side
 from faithful_pakad.outputs import build_report
+from faithful_pakad.outputs.files import write_files
 from faithful_pakad.outputs.render import RENDERERS, render_all, terminal_summary
+from faithful_pakad.outputs.safety import terminal
 from faithful_pakad.profile import load_profile
 from faithful_pakad.readers import DEFAULT_MAX_BYTES, read_table
-from faithful_pakad.reconcile import reconcile
+from faithful_pakad.reconcile import parse_timestamp, reconcile
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -33,21 +34,18 @@ class ExitCode(IntEnum):
     FINDINGS = 1
     USAGE = 2
     INPUT_ERROR = 3
+    INTERNAL_ERROR = 4
 
 
 FAIL_ON = ("any", "error", "never")
 
 
 def _timestamp(text: str) -> datetime:
-    value = text.strip()
-    if value.endswith(("z", "Z")):
-        value = value[:-1] + "+00:00"
-    try:
-        when = datetime.fromisoformat(value)
-    except ValueError as exc:
+    if parse_timestamp(text, assume_utc=True) is None:
         msg = f"not an ISO 8601 timestamp: {text!r}"
-        raise argparse.ArgumentTypeError(msg) from exc
-    if when.tzinfo is None:
+        raise argparse.ArgumentTypeError(msg)
+    when = parse_timestamp(text, assume_utc=False)
+    if when is None:
         msg = f"timestamp needs a time zone, for example {text}Z: {text!r}"
         raise argparse.ArgumentTypeError(msg)
     return when
@@ -129,21 +127,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _write(path: Path, text: str, *, force: bool) -> None:
-    """Write a report file readable only by the current user."""
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if force else os.O_EXCL)
-    try:
-        fd = os.open(path, flags, 0o600)
-    except FileExistsError as exc:
-        msg = f"{path} already exists; use --force to overwrite"
-        raise PakadError(msg) from exc
-    except OSError as exc:
-        msg = f"cannot write {path}: {exc.strerror}"
-        raise PakadError(msg) from exc
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-        handle.write(text)
-
-
 def _run(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
     expected = read_table(args.expected, profile.expected, Side.EXPECTED, max_bytes=args.max_bytes)
@@ -155,21 +138,12 @@ def _run(args: argparse.Namespace) -> int:
     result = reconcile(profile, expected, collected, as_of=as_of)
     report = build_report(result, profile, expected, collected, as_of=as_of, generated_at=now)
 
-    out_dir: Path = args.out_dir
-    try:
-        out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    except OSError as exc:
-        msg = f"cannot create {out_dir}: {exc.strerror}"
-        raise PakadError(msg) from exc
-    written = []
-    for name, text in render_all(report, args.format).items():
-        _write(out_dir / name, text, force=args.force)
-        written.append(out_dir / name)
+    written = write_files(args.out_dir, render_all(report, args.format), force=args.force)
     print(terminal_summary(report))  # noqa: T201
     print("\nReports:")  # noqa: T201
     for path in written:
         hint = "  <- open this in a browser" if path.suffix == ".html" else ""
-        print(f"  {path}{hint}")  # noqa: T201
+        print(f"  {terminal(str(path))}{hint}")  # noqa: T201
 
     if args.fail_on == "never":
         return ExitCode.OK
@@ -186,13 +160,7 @@ EXAMPLE_FILES = ("profile.toml", "expected.csv", "collected.csv")
 
 
 def _example(directory: Path, *, force: bool) -> int:
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        msg = f"cannot create {directory}: {exc.strerror}"
-        raise PakadError(msg) from exc
-    for name in EXAMPLE_FILES:
-        _write(directory / name, _resource(f"data/{name}"), force=force)
+    write_files(directory, {name: _resource(f"data/{name}") for name in EXAMPLE_FILES}, force=force)
     d = directory
     print(f"Wrote a synthetic example to {d}. Try it:\n")  # noqa: T201
     print(  # noqa: T201
@@ -240,5 +208,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return int(handler(args))
     except PakadError as exc:
-        print(f"pakad: error: {exc}", file=sys.stderr)  # noqa: T201
+        print(f"pakad: error: {terminal(str(exc))}", file=sys.stderr)  # noqa: T201
         return int(ExitCode.INPUT_ERROR)
+    except Exception as exc:  # noqa: BLE001 - last resort, so a crash never looks like findings
+        print(  # noqa: T201
+            f"pakad: internal error: {terminal(repr(exc))}\n"
+            "This is a bug. Please report it: "
+            "https://github.com/faithful-oversight/faithful-pakad/issues",
+            file=sys.stderr,
+        )
+        return int(ExitCode.INTERNAL_ERROR)

@@ -126,7 +126,7 @@ def test_reports_are_private_and_never_silently_overwritten(
     if os.name == "posix":
         assert stat.S_IMODE((tmp_path / "pakad-report.json").stat().st_mode) == 0o600
     assert main(example_args(tmp_path, "-f", "json")) == ExitCode.INPUT_ERROR
-    assert "already exists; use --force" in capsys.readouterr().err
+    assert "already exists; use --force to replace" in capsys.readouterr().err
     assert main(example_args(tmp_path, "-f", "json", "--force")) == ExitCode.FINDINGS
 
 
@@ -202,3 +202,77 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("faithful_pakad", run_name="__main__")
     assert exc.value.code == ExitCode.OK
+
+
+def test_no_partial_reports_when_a_target_exists(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pakad-report.md").write_text("old evidence")
+    assert main(example_args(tmp_path)) == ExitCode.INPUT_ERROR
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pakad-report.md"]
+    assert (tmp_path / "pakad-report.md").read_text() == "old evidence"
+    assert "already exists; use --force" in capsys.readouterr().err
+
+
+def test_failed_write_leaves_old_reports_and_no_temp_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pakad-report.json").write_text("old evidence")
+
+    def fail(*_: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("pathlib.Path.replace", fail)
+    assert main(example_args(tmp_path, "--force")) == ExitCode.INPUT_ERROR
+    assert "No space left on device" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["pakad-report.json"]
+    assert (tmp_path / "pakad-report.json").read_text() == "old evidence"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+def test_force_replaces_a_symlink_instead_of_following_it(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.txt"
+    outside.write_text("do not touch")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "pakad-report.json").symlink_to(outside)
+    assert main(example_args(out, "-f", "json", "--force")) == ExitCode.FINDINGS
+    assert outside.read_text() == "do not touch"
+    assert not (out / "pakad-report.json").is_symlink()
+    assert stat.S_IMODE((out / "pakad-report.json").stat().st_mode) == 0o600
+
+
+def test_internal_errors_exit_4_not_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*_: object, **__: object) -> None:
+        msg = "\x1b[31mboom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("faithful_pakad.cli.reconcile", boom)
+    assert main(example_args(tmp_path)) == ExitCode.INTERNAL_ERROR
+    err = capsys.readouterr().err
+    assert "pakad: internal error" in err
+    assert "This is a bug" in err
+    assert "\x1b" not in err
+
+
+def test_error_messages_cannot_inject_terminal_codes(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = write("p.toml", MINIMAL_PROFILE)
+    bad = write("e\x1b[2Jx.csv", "id\n1\n")
+    col = write("c.csv", "other\n1\n")
+    args = [
+        "reconcile",
+        "-p",
+        str(profile),
+        "-e",
+        str(bad),
+        "-c",
+        str(col),
+        "-o",
+        str(tmp_path / "o"),
+    ]
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "\x1b" not in capsys.readouterr().err

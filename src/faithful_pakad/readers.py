@@ -13,6 +13,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from faithful_pakad.errors import InputError
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 MAX_FIELD_CHARS = 1024 * 1024
 JSON_LIST_KEYS = ("value", "records")
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 csv.field_size_limit(MAX_FIELD_CHARS)
 
@@ -49,14 +51,14 @@ def read_table(
     """
     name = path.name
     try:
-        size = path.stat().st_size
-        if size > max_bytes:
-            msg = f"{name}: file is {size} bytes, over the {max_bytes}-byte limit"
-            raise InputError(msg)
-        raw = path.read_bytes()
+        with path.open("rb") as handle:
+            raw = handle.read(max_bytes + 1)
     except OSError as exc:
         msg = f"cannot read {side} input {name}: {exc.strerror}"
         raise InputError(msg) from exc
+    if len(raw) > max_bytes:
+        msg = f"{name}: file is over the {max_bytes}-byte limit; raise it with --max-bytes"
+        raise InputError(msg)
     try:
         text = raw.decode(spec.encoding)
     except UnicodeDecodeError as exc:
@@ -137,7 +139,19 @@ def _check_header(header: list[str], name: str) -> tuple[str, ...]:
     return columns
 
 
+class _Number(str):
+    """A JSON number, kept exactly as written in the file."""
+
+    __slots__ = ()
+
+
+def _clean(text: str) -> str:
+    """Replace lone surrogates, which JSON allows but UTF-8 cannot encode."""
+    return _SURROGATE.sub("\ufffd", text)
+
+
 def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    pairs = [(_clean(k), v) for k, v in pairs]
     keys = [k for k, _ in pairs]
     if len(set(keys)) != len(keys):
         msg = "an object repeats a property name"
@@ -152,7 +166,13 @@ def _reject_constant(value: str) -> None:
 
 def _read_json(text: str, name: str, side: Side) -> tuple[tuple[str, ...], tuple[Record, ...]]:
     try:
-        data = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_unique_pairs)
+        data = json.loads(
+            text,
+            parse_constant=_reject_constant,
+            parse_int=_Number,
+            parse_float=_Number,
+            object_pairs_hook=_unique_pairs,
+        )
     except (ValueError, RecursionError) as exc:
         msg = f"{name}: not valid JSON: {exc}"
         raise InputError(msg) from exc
@@ -192,13 +212,33 @@ def _read_json(text: str, name: str, side: Side) -> tuple[tuple[str, ...], tuple
 
 
 def _json_text(value: object) -> Value:
-    """Turn a JSON value into text without guessing at types."""
+    """Turn a JSON value into text without guessing at types.
+
+    Numbers keep the exact text from the file, so ``1.0`` stays ``1.0``. Nested
+    arrays and objects become compact JSON text.
+    """
     if value is None:
         return None
     if isinstance(value, str):
-        return value
+        return value if isinstance(value, _Number) else _clean(value)
+    return _compact(value)
+
+
+def _compact(value: object) -> str:
+    if isinstance(value, _Number):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(_clean(value), ensure_ascii=False)
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, int | float):
-        return json.dumps(value)
-    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    if value is None:
+        return "null"
+    if isinstance(value, list):
+        return "[" + ", ".join(_compact(v) for v in value) + "]"
+    if isinstance(value, dict):
+        items = sorted(value.items())
+        pairs = (f"{json.dumps(k, ensure_ascii=False)}: {_compact(v)}" for k, v in items)
+        return "{" + ", ".join(pairs) + "}"
+    # json.loads produces no other types.
+    msg = f"unexpected JSON value type {type(value).__name__}"  # pragma: no cover
+    raise TypeError(msg)  # pragma: no cover

@@ -10,7 +10,9 @@ turns a check off.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
+import math
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +29,8 @@ FORMATS = ("auto", "csv", "json")
 NAIVE_TIMESTAMP_POLICIES = ("reject", "utc")
 DEFAULT_PAGE_SIZES = (1000, 1500, 5000)
 MAX_PROFILE_BYTES = 1024 * 1024
+MAX_AGE_HOURS = 87_600  # ten years
+FORBIDDEN_DELIMITERS = ('"', "\r", "\n")
 
 Format = Literal["auto", "csv", "json"]
 
@@ -108,8 +112,13 @@ class _Section:
         value = self._data.pop(name, None)
         if value is None:
             return None
-        if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
-            self.error(name, "must be a positive number")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(value)
+            or not 0 < value <= MAX_AGE_HOURS
+        ):
+            self.error(name, f"must be a number greater than 0 and at most {MAX_AGE_HOURS}")
         return float(value)
 
     def int_list(self, name: str, default: tuple[int, ...]) -> tuple[int, ...]:
@@ -177,16 +186,26 @@ def _table_spec(section: _Section) -> TableSpec:
         section.error("key", "must name at least one column")
     fmt = section.choice("format", FORMATS, "auto")
     delimiter = section.string("delimiter")
-    if delimiter is not None and len(delimiter) != 1:
-        section.error("delimiter", "must be a single character")
-    encoding = section.string("encoding", "utf-8-sig")
+    if delimiter is not None and (len(delimiter) != 1 or delimiter in FORBIDDEN_DELIMITERS):
+        section.error("delimiter", "must be a single character other than a quote or line break")
+    encoding = section.string("encoding", "utf-8-sig") or "utf-8-sig"
+    if not _is_text_encoding(encoding):
+        section.error("encoding", f"{encoding!r} is not a known text encoding")
     section.finish()
     return TableSpec(
         key=key,
         format=fmt,  # type: ignore[arg-type]  # validated by choice()
         delimiter=delimiter,
-        encoding=encoding or "utf-8-sig",
+        encoding=encoding,
     )
+
+
+def _is_text_encoding(name: str) -> bool:
+    try:
+        info = codecs.lookup(name)
+    except LookupError:
+        return False
+    return bool(getattr(info, "_is_text_encoding", True))
 
 
 def _compare_spec(section: _Section) -> CompareSpec:
@@ -196,10 +215,14 @@ def _compare_spec(section: _Section) -> CompareSpec:
         msg = "each [[compare]] entry needs both 'expected' and 'collected' column names"
         raise ProfileError(msg)
     steps = _steps(section, "normalize", ("strip",))
-    equivalents = {
-        normalize(k, steps): normalize(v, steps)
-        for k, v in section.raw_mapping("equivalents").items()
-    }
+    equivalents: dict[str, str] = {}
+    for raw, meaning in section.raw_mapping("equivalents").items():
+        key = normalize(raw, steps)
+        if key in equivalents:
+            section.error(
+                "equivalents", f"{raw!r} is the same as another entry after normalization"
+            )
+        equivalents[key] = normalize(meaning, steps)
     section.finish()
     return CompareSpec(expected, collected, steps, equivalents)
 

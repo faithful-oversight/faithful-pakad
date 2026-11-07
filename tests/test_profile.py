@@ -76,8 +76,32 @@ def test_name_defaults_when_absent() -> None:
         (lambda t: t + "[[compare]]\nexpected='a'\ncollected='b'\nequivalents={x=1}\n", "string"),
         (lambda t: t + "[collection]\nexpected_sources = ['a']\n", "needs collection.source"),
         (lambda t: t + "[collection]\ncaptured_at_column = 'c'\n", "set together"),
-        (lambda t: t + "[collection]\nmax_age_hours = 0\ncaptured_at_column='c'\n", "positive"),
-        (lambda t: t + "[collection]\nmax_age_hours = true\ncaptured_at_column='c'\n", "positive"),
+        (
+            lambda t: t + "[collection]\nmax_age_hours = 0\ncaptured_at_column='c'\n",
+            "greater than 0",
+        ),
+        (lambda t: t + "[collection]\nmax_age_hours = true\ncaptured_at_column='c'\n", "greater"),
+        (lambda t: t + "[collection]\nmax_age_hours = inf\ncaptured_at_column='c'\n", "at most"),
+        (lambda t: t + "[collection]\nmax_age_hours = nan\ncaptured_at_column='c'\n", "at most"),
+        (lambda t: t + "[collection]\nmax_age_hours = 1e9\ncaptured_at_column='c'\n", "at most"),
+        (
+            lambda t: t.replace('key = ["uid"]', 'key = ["uid"]\ndelimiter = \'"\''),
+            "other than a quote",
+        ),
+        (
+            lambda t: t.replace('key = ["uid"]', 'key = ["uid"]\nencoding = "nope"'),
+            "not a known text",
+        ),
+        (
+            lambda t: t.replace('key = ["uid"]', 'key = ["uid"]\nencoding = "base64"'),
+            "not a known text",
+        ),
+        (
+            lambda t: (
+                t + "[[compare]]\nexpected='a'\ncollected='b'\nequivalents={' X'='1', 'X'='2'}\n"
+            ),
+            "same as another entry",
+        ),
         (lambda t: t + "[collection]\npage_sizes = [0]\n", "positive whole"),
         (lambda t: t + "[collection]\nnaive_timestamps = 'local'\n", "one of reject"),
     ],

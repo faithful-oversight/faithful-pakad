@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 Key = tuple[str, ...]
 
+FUTURE_TOLERANCE = timedelta(minutes=5)
+"""Capture times this far past the reference time are allowed, for small clock differences."""
+
 
 def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: datetime) -> Result:
     """Compare the expected population with the collected export.
@@ -54,7 +57,7 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
     _require_columns(expected, _expected_columns(profile))
     _require_columns(collected, _collected_columns(profile))
 
-    findings: list[Finding] = []
+    findings: list[Finding] = [_empty(t) for t in (expected, collected) if not t.records]
     unknowns: list[Unknown] = []
     expected_index = _index(expected, profile.expected, profile.key_normalize, findings)
     collected_index = _index(collected, profile.collected, profile.key_normalize, findings)
@@ -70,6 +73,19 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
         matched_keys=len(matched),
         rules=_rules(profile),
     )
+
+
+def _empty(table: Table) -> Finding:
+    return Finding(
+        kind=Kind.EMPTY_INPUT,
+        message=f"The {table.side} input has no records.",
+        details={"input": table.side.value, "file": table.file},
+    )
+
+
+def _raw_key(records: Sequence[Record], columns: Sequence[str]) -> str:
+    """Return the key as written in the first record, before normalization."""
+    return " | ".join(records[0].values[c] or "" for c in columns)
 
 
 def _expected_columns(profile: Profile) -> list[str]:
@@ -152,7 +168,10 @@ def _presence(
             message="Expected record has no match in the collected export.",
             key=key,
             refs=tuple(r.ref for r in expected[key]),
-            details={"key_columns": ", ".join(profile.expected.key)},
+            details={
+                "key_columns": ", ".join(profile.expected.key),
+                "raw_key": _raw_key(expected[key], profile.expected.key),
+            },
         )
     for key in collected.keys() - expected.keys():
         yield Finding(
@@ -160,7 +179,10 @@ def _presence(
             message="Collected record is not in the expected population.",
             key=key,
             refs=tuple(r.ref for r in collected[key]),
-            details={"key_columns": ", ".join(profile.collected.key)},
+            details={
+                "key_columns": ", ".join(profile.collected.key),
+                "raw_key": _raw_key(collected[key], profile.collected.key),
+            },
         )
 
 
@@ -202,9 +224,13 @@ def _compare_one(spec: CompareSpec, key: Key, exp: Record, col: Record) -> Findi
         col_value = normalize(col_raw, spec.normalize)
         if spec.equivalents.get(col_value, col_value) == exp_value:
             return None
+    if exp_raw is None and col_raw is None:
+        message = f"{spec.expected} (expected) and {spec.collected} (collected) are both absent."
+    else:
+        message = f"{spec.expected} (expected) and {spec.collected} (collected) differ."
     return Finding(
         kind=Kind.FIELD_MISMATCH,
-        message=f"{spec.expected} (expected) and {spec.collected} (collected) differ.",
+        message=message,
         key=key,
         refs=(exp.ref, col.ref),
         details={
@@ -280,11 +306,17 @@ def _freshness(
                 refs=(record.ref,),
                 details={"column": column, "value": _show(raw)},
             )
+        elif when > as_of + FUTURE_TOLERANCE:
+            yield Finding(
+                kind=Kind.INVALID_TIMESTAMP,
+                message=f"Capture time in {column} is later than the reference time.",
+                refs=(record.ref,),
+                details={"column": column, "value": _show(raw), "as_of": as_of.isoformat()},
+            )
         elif as_of - when > limit:
-            age_hours = (as_of - when).total_seconds() / 3600
             yield Finding(
                 kind=Kind.STALE_RECORD,
-                message=f"Record was captured {age_hours:.1f} hours before the reference time.",
+                message=f"Record was captured {_age(as_of - when)} before the reference time.",
                 refs=(record.ref,),
                 details={
                     "column": column,
@@ -292,6 +324,13 @@ def _freshness(
                     "max_age_hours": f"{spec.max_age_hours:g}",
                 },
             )
+
+
+def _age(delta: timedelta) -> str:
+    hours = delta.total_seconds() / 3600
+    if hours < 48:  # noqa: PLR2004 - switch to days after two days
+        return f"{hours:.1f} hours"
+    return f"{hours / 24:,.1f} days"
 
 
 def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:

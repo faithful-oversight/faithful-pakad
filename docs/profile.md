@@ -49,8 +49,8 @@ Both tables take the same settings and both are required.
 | --- | --- | --- |
 | `key` | required | Column, or list of columns, that identify a record. Both tables must name the same number of columns. The first expected column is matched with the first collected column, and so on. |
 | `format` | `auto` | `auto` picks from the file extension. Or `csv` or `json`. |
-| `delimiter` | `,` | CSV delimiter, one character. Files ending in `.tsv` default to a tab. |
-| `encoding` | `utf-8-sig` | Text encoding. The default reads UTF-8 with or without a byte order mark. Use, for example, `cp1252` for older Windows exports. |
+| `delimiter` | `,` | CSV delimiter, one character other than a quote or line break. Files ending in `.tsv` default to a tab. |
+| `encoding` | `utf-8-sig` | Text encoding. The default reads UTF-8 with or without a byte order mark. Use, for example, `cp1252` for older Windows exports. Checked when the profile loads. |
 
 ## `[match]`
 
@@ -78,7 +78,7 @@ Optional. Repeat the table once for each field to compare on matched records.
 | `expected` | required | Column in the expected input. |
 | `collected` | required | Column in the collected input. |
 | `normalize` | `["strip"]` | Steps applied to both values before comparing. |
-| `equivalents` | none | Table mapping a collected value to the expected value it counts as. Keys and values are normalized with the same steps. |
+| `equivalents` | none | Table mapping a collected value to the expected value it counts as. Keys and values are normalized with the same steps, and two keys that normalize to the same text are an error. |
 
 An absent value never equals anything, including another absent value, so missing data always shows up as a `field-mismatch`.
 
@@ -93,7 +93,7 @@ Optional checks on the collected export as a whole.
 | `source_column` | none | Collected column that names where each record came from, for example its domain. |
 | `expected_sources` | none | Sources that must each contribute at least one record. Needs `source_column`. Compared ignoring case and surrounding spaces. |
 | `captured_at_column` | none | Collected column holding each record's capture time, in ISO 8601. Set together with `max_age_hours`. |
-| `max_age_hours` | none | Records captured longer ago than this, measured from the reference time, are reported as stale. |
+| `max_age_hours` | none | Records captured longer ago than this, measured from the reference time, are reported as stale. Between 0 and 87600 (ten years). Capture times more than five minutes after the reference time are reported as invalid, because they usually mean a clock or typing error. |
 | `naive_timestamps` | `reject` | How to treat capture times without a time zone: `reject` reports them as invalid, `utc` treats them as UTC. |
 | `page_sizes` | `[1000, 1500, 5000]` | Warn when the collected record count, overall or for any source, is an exact multiple of one of these numbers. Use `[]` to switch the check off. |
 
