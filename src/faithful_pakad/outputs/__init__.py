@@ -23,6 +23,12 @@ SCHEMA_VERSION = "1.0"
 SCHEMA_ID = "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json"
 """Identifier of the report schema. ``pakad schema`` prints the same schema offline."""
 
+MANIFEST_SCHEMA_VERSION = "1.0"
+MANIFEST_SCHEMA_ID = (
+    "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json"
+)
+"""Identifier of the manifest schema. ``pakad schema manifest`` prints it offline."""
+
 Report = dict[str, Any]
 
 

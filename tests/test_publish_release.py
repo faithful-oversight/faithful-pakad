@@ -5,13 +5,18 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "publish_release.py"
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "publish_release.py"
+EVIDENCE = ROOT / "scripts" / "release_evidence.sh"
 _spec = importlib.util.spec_from_file_location("publish_release", SCRIPT)
 assert _spec is not None
 assert _spec.loader is not None
@@ -92,6 +97,36 @@ def test_partial_draft_resumes_only_missing_uploads(assets: list[Path]) -> None:
     assert "a.tar.gz" in gh.uploads
     assert len(gh.release_list) == 1
     pr.publish(gh, REF, assets)
+
+
+def test_rerun_with_rebuilt_evidence_resumes(assets: list[Path], tmp_path: Path) -> None:
+    """A rerun rebuilds every file in a new place; identical bytes resume the draft.
+
+    Resuming depends on the rebuild giving identical bytes, which
+    test_release_evidence_is_reproducible and scripts/check.sh build check.
+    Different bytes stop the rerun instead.
+    """
+    gh = FakeGitHub()
+    gh.fail_upload = "SHA256SUMS"
+    with pytest.raises(pr.ReleaseError, match="network error"):
+        pr.stage(gh, REF, "notes", assets)
+    first_run = set(gh.uploads)
+    rebuilt_dir = tmp_path / "rerun"
+    rebuilt_dir.mkdir()
+    rebuilt = []
+    for path in assets:
+        copy = rebuilt_dir / path.name
+        copy.write_bytes(path.read_bytes())
+        rebuilt.append(copy)
+    gh.fail_upload = None
+    gh.uploads.clear()
+    pr.stage(gh, REF, "notes", rebuilt)
+    assert set(gh.uploads) == {p.name for p in assets} - first_run
+    assert "SHA256SUMS" in gh.uploads
+    pr.publish(gh, REF, rebuilt)
+    (rebuilt_dir / "SHA256SUMS").write_bytes(b"different sums")
+    with pytest.raises(pr.ReleaseError, match="SHA256SUMS"):
+        pr.stage(gh, REF, "notes", rebuilt)
 
 
 def test_incomplete_release_is_never_published(assets: list[Path]) -> None:
@@ -195,3 +230,23 @@ def test_main_reports_errors_and_runs_steps(
     assert "::error::" in capsys.readouterr().err
     assert pr.main(["stage", *base, "--notes", str(notes), *map(str, assets)], api=gh) == 0
     assert pr.main(["publish", *base, *map(str, assets)], api=gh) == 0
+
+
+@pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("uv") is None, reason="needs git and uv"
+)
+def test_release_evidence_is_reproducible(tmp_path: Path) -> None:
+    """Two runs of scripts/release_evidence.sh give the same SBOM and SHA256SUMS."""
+    outputs = []
+    for run in ("first", "second"):
+        dist = tmp_path / run
+        dist.mkdir()
+        (dist / "package.whl").write_bytes(b"wheel")
+        subprocess.run(  # noqa: S603 - fixed script path, no shell
+            [str(EVIDENCE), str(dist)], cwd=ROOT, check=True, capture_output=True
+        )
+        outputs.append({p.name: p.read_bytes() for p in dist.iterdir()})
+    assert outputs[0] == outputs[1]
+    assert sorted(outputs[0]) == ["SHA256SUMS", "package.whl", "sbom.cdx.json"]
+    sbom = json.loads(outputs[0]["sbom.cdx.json"])
+    assert "serialNumber" not in sbom

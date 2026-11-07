@@ -23,13 +23,14 @@ if [[ -x "$work/venv/bin/pakad" ]]; then pakad="$work/venv/bin/pakad"; else paka
 
 "$pakad" --version
 "$pakad" schema > "$work/schema.json"
+"$pakad" schema manifest > "$work/manifest-schema.json"
 "$pakad" example "$work/demo" > /dev/null
 status=0
 "$pakad" reconcile -p "$work/demo/profile.toml" -e "$work/demo/expected.csv" \
   -c "$work/demo/collected.csv" -o "$work/demo/report" --as-of 2026-11-07T12:00:00Z \
   > /dev/null || status=$?
 [[ "$status" -eq 1 ]] || { echo "expected exit code 1 (findings), got $status" >&2; exit 1; }
-for name in pakad-report.html pakad-report.json pakad-findings.csv pakad-report.md; do
+for name in pakad-report.html pakad-report.json pakad-findings.csv pakad-report.md pakad-manifest.json; do
   [[ -s "$work/demo/report/$name" ]] || { echo "missing $name" >&2; exit 1; }
 done
 echo "smoke test passed: ${wheels[0]}"

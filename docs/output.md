@@ -74,7 +74,38 @@ Compatibility promise:
 
 The report records the profile's SHA-256 and lists its rules, including equivalent values. The hash identifies the profile; it does not contain it. Keep the profile with the inputs if the report may need to be reproduced.
 
-Every report also has a `run_id`, shared by all files from the same run.
+Every report also has a `run_id`, shared by all files from the same run, including the [run manifest](#run-manifest).
+
+## Run manifest
+
+Every run also writes `pakad-manifest.json`, after every other file. It records the run ID and lists each report file from the run with its size in bytes and SHA-256. This manifest is from a clean run with `--format csv`:
+
+```json
+{
+  "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json",
+  "schema_version": "1.0",
+  "tool": {"name": "pakad", "version": "0.1.0"},
+  "run_id": "4f3c1e0a9b7d4c2e8f6a5b3c1d0e9f8a",
+  "generated_at": "2026-11-07T12:00:00+00:00",
+  "files": [
+    {
+      "name": "pakad-findings.csv",
+      "bytes": 52,
+      "sha256": "3a43cf9006b00982bd9485a6238a7eb573d5663eacb1b6f34f994a43c3e9417a"
+    }
+  ]
+}
+```
+
+The manifest ties every file to its run, including a findings CSV with no rows, which has a header and nothing to carry a run ID. It also makes a set of files checkable as a whole:
+
+- If the manifest is missing, the run did not finish writing.
+- If a file's size or SHA-256 differs from the manifest, the file is partial, edited, or from another run.
+- If a file the manifest lists is missing, the set is incomplete.
+
+The manifest covers only the files from its own run. A report file it does not list, for example one left from an earlier run with other `--format` choices, belongs to another run.
+
+`pakad schema manifest` prints the manifest schema offline. It follows the same compatibility promise as the report schema.
 
 ## Invisible characters
 
@@ -90,7 +121,7 @@ The HTML and Markdown reports show at most 500 findings of each kind, and say ho
 
 ## CSV findings
 
-`pakad-findings.csv` has one row per finding, with the columns `id`, `kind`, `severity`, `key`, `source`, `message`, `details`, and `run_id`. Any cell that starts with a character a spreadsheet could treat as a formula gets a leading apostrophe, so opening the file cannot run anything.
+`pakad-findings.csv` has one row per finding, with the columns `id`, `kind`, `severity`, `key`, `source`, `message`, `details`, and `run_id`. A clean run writes the header row only; the run manifest records which run it came from. Any cell that starts with a character a spreadsheet could treat as a formula gets a leading apostrophe, so opening the file cannot run anything.
 
 ## HTML report
 

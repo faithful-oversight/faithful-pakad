@@ -171,6 +171,18 @@ def test_json_nesting_limit_applies_after_decoding(
     assert read(write("b.json", '[{"id": "a", "extra": ' + ok + "}]"))[0]["extra"] == ok
 
 
+@pytest.mark.parametrize("leaf", ["", "0", '"text"', "null", "true"])
+def test_json_nesting_limit_counts_only_arrays_and_objects(
+    write: Callable[[str, str | bytes], Path], leaf: str
+) -> None:
+    """64 levels of arrays are allowed and 65 are not, whatever the innermost value is."""
+    allowed = "[" * 63 + "[" + leaf + "]" + "]" * 63
+    assert read(write("ok.json", '[{"id": "a", "extra": ' + allowed + "}]"))[0]["extra"]
+    deeper = "[" + allowed + "]"
+    with pytest.raises(InputError, match="nested more than 64"):
+        read(write("deep.json", '[{"id": "a", "extra": ' + deeper + "}]"))
+
+
 def test_sparse_records_store_only_present_fields(
     write: Callable[[str, str | bytes], Path],
 ) -> None:

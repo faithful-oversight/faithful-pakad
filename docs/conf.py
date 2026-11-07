@@ -67,15 +67,16 @@ def _add_navigation(_: Sphinx, docname: str, source: list[str]) -> None:
         source[0] += "\n\n```{toctree}\n:hidden:\n\n" + "\n".join(pages) + "\n```\n"
 
 
-SCHEMA = Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/report-v1.schema.json"
+SCHEMAS = Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema"
 
 
 def _publish_schema(app: Sphinx, error: Exception | None) -> None:
-    """Serve the report schema at the URL its ``$id`` names."""
+    """Serve the report and manifest schemas at the URLs their ``$id`` names."""
     if error is None and app.builder.format == "html":
         target = Path(app.outdir) / "schema"
         target.mkdir(exist_ok=True)
-        shutil.copyfile(SCHEMA, target / SCHEMA.name)
+        for schema in sorted(SCHEMAS.glob("*.schema.json")):
+            shutil.copyfile(schema, target / schema.name)
 
 
 def setup(app: Sphinx) -> None:

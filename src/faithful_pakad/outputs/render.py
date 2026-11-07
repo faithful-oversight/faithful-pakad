@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Faithful Oversight, LLC
 # SPDX-License-Identifier: Apache-2.0
-"""Render a report document as JSON, CSV, Markdown, or HTML text.
+"""Render a report document as JSON, CSV, Markdown, or HTML text, plus a manifest.
 
-Every renderer reads the same report document, so all formats agree. Values from
+Every renderer reads the same report document, so all formats agree. The
+manifest lists every rendered file with its size and SHA-256. Values from
 the input files are untrusted: the CSV renderer neutralizes spreadsheet formulas,
 the Markdown renderer escapes Markdown and HTML syntax, and the HTML renderer
 escapes everything and forbids scripts and network access.
@@ -11,6 +12,7 @@ escapes everything and forbids scripts and network access.
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import io
 import json
@@ -18,12 +20,12 @@ from typing import TYPE_CHECKING, Any
 
 from faithful_pakad.model import KIND_ORDER, Kind
 from faithful_pakad.normalize import count
-from faithful_pakad.outputs import format_ref
+from faithful_pakad.outputs import MANIFEST_SCHEMA_ID, MANIFEST_SCHEMA_VERSION, format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
 from faithful_pakad.outputs.safety import csv_cell, escape_markdown, terminal, visible
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from faithful_pakad.outputs import Report
 
@@ -425,9 +427,39 @@ RENDERERS: dict[str, tuple[str, Callable[[Report], str]]] = {
 """Output formats, in default order: file name and renderer."""
 
 
+MANIFEST_NAME = "pakad-manifest.json"
+"""Written with every run, after every other file."""
+
+
+def render_manifest(report: Report, outputs: Mapping[str, str]) -> str:
+    """List each rendered file with its size and SHA-256, under the report's run ID.
+
+    The manifest ties every file to its run, including a findings CSV with no
+    rows, and makes a truncated, edited, or mixed set of files detectable.
+    """
+    files = []
+    for name, text in outputs.items():
+        data = text.encode("utf-8")
+        files.append({"name": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    manifest = {
+        "$schema": MANIFEST_SCHEMA_ID,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "tool": report["tool"],
+        "run_id": report["run_id"],
+        "generated_at": report["generated_at"],
+        "files": files,
+    }
+    return json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+
+
 def render_all(report: Report, formats: list[str]) -> dict[str, str]:
-    """Render the report in each requested format. Returns file name to text."""
-    return {RENDERERS[fmt][0]: RENDERERS[fmt][1](report) for fmt in formats}
+    """Render the report in each requested format, then the manifest, last.
+
+    Returns file name to text, in the order the files should be placed.
+    """
+    outputs = {RENDERERS[fmt][0]: RENDERERS[fmt][1](report) for fmt in formats}
+    outputs[MANIFEST_NAME] = render_manifest(report, outputs)
+    return outputs
 
 
 def terminal_summary(report: Report) -> str:

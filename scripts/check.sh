@@ -55,6 +55,17 @@ stage_build() {
   uv build --build-constraint requirements-build.txt --require-hashes
   run twine check --strict dist/*
   scripts/smoke_test.sh dist
+  scripts/release_evidence.sh dist
+  # A rerun of the release workflow rebuilds everything, and can resume a staged
+  # draft only if every byte comes out the same. Prove that on every change.
+  local again=build/rebuild
+  rm -rf "$again"
+  uv build --quiet --build-constraint requirements-build.txt --require-hashes --out-dir "$again"
+  scripts/release_evidence.sh "$again"
+  if ! diff dist/SHA256SUMS "$again/SHA256SUMS" >&2; then
+    echo "a second build gave different bytes; releases could not resume" >&2
+    return 1
+  fi
 }
 
 ALL=(format lint types test docs site config workflows secrets deps licenses reuse build)

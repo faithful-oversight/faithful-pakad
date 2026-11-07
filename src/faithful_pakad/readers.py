@@ -235,7 +235,8 @@ def _json_text(value: object) -> Value:
     """Turn a JSON value into text without guessing at types.
 
     Numbers keep the exact text from the file, so ``1.0`` stays ``1.0``. Nested
-    arrays and objects become compact JSON text, up to ``MAX_JSON_DEPTH`` levels.
+    arrays and objects become compact JSON text, up to ``MAX_JSON_DEPTH`` levels of
+    arrays and objects.
     """
     if value is None:
         return None
@@ -245,9 +246,11 @@ def _json_text(value: object) -> Value:
 
 
 def _compact(value: object, depth: int) -> str:
-    if depth > MAX_JSON_DEPTH:
-        msg = f"is nested more than {MAX_JSON_DEPTH} levels deep"
-        raise _UnusableValueError(msg)
+    """Render ``value``, which sits at ``depth`` counting the field's own value as 1.
+
+    Only arrays and objects count toward ``MAX_JSON_DEPTH``. A scalar inside the
+    deepest allowed array is fine, so the limit is the same with or without one.
+    """
     if isinstance(value, _Number):
         return str(value)
     if isinstance(value, str):
@@ -256,6 +259,9 @@ def _compact(value: object, depth: int) -> str:
         return "true" if value else "false"
     if value is None:
         return "null"
+    if depth > MAX_JSON_DEPTH:
+        msg = f"is nested more than {MAX_JSON_DEPTH} levels deep"
+        raise _UnusableValueError(msg)
     if isinstance(value, list):
         return "[" + ", ".join(_compact(v, depth + 1) for v in value) + "]"
     if isinstance(value, dict):

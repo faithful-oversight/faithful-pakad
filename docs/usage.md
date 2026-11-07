@@ -10,7 +10,7 @@ pakad [--version] COMMAND [options]
 | `check-profile` | Validate a profile without reading any data. |
 | `example` | Write a synthetic example: a profile and two CSV files. |
 | `example-profile` | Print a commented example profile. |
-| `schema` | Print the JSON Schema for the JSON report. |
+| `schema` | Print the JSON Schema for the JSON report, or with `schema manifest`, for the run manifest. |
 
 Run `pakad COMMAND --help` for the options of any command.
 
@@ -37,11 +37,17 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 pakad picks the format from the file extension: `.csv`, `.tsv`, and `.txt` are read as delimited text, and `.json` as JSON. Set `format` in the profile to override.
 
 - **CSV:** the first row is the header. Values are never converted, so `000123` stays `000123`. A row with fewer fields than the header has the missing values recorded as absent, which differs from empty. A row with more fields than the header stops the run with an input error that names the line, because pakad cannot tell which value belongs to which column.
-- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested values become compact JSON text, up to 64 levels deep. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable.
+- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested arrays and objects become compact JSON text, up to 64 levels of arrays and objects inside one value. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable.
 
 ### Report files
 
-pakad writes these files into the output directory, readable only by your user account on Linux and macOS. Each file is complete before it appears. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set. Only a crash or power loss in the middle of that swap can leave a mix; every file from one run carries the same run ID, so a mix is detectable.
+pakad writes the reports you choose with `--format`, then `pakad-manifest.json`, into the output directory. Files are readable only by your user account on Linux and macOS. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set.
+
+Each file is complete before it appears, on file systems with hard links. On file systems without them, such as FAT and exFAT on many USB drives, each file is visible while pakad writes it, and pakad removes it again if writing fails. In both cases the manifest is written last, so its presence means every other file is in place.
+
+Run one pakad at a time per output directory. Two runs writing to the same directory at once can remove or restore each other's files.
+
+Only a crash or power loss while writing can leave a partial file or a mix of old and new files. The manifest lists the size and SHA-256 of every file from its run, so either case is detectable: see [Reports and findings](output.md#run-manifest).
 
 | File | Format |
 | --- | --- |

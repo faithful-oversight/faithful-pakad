@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 from datetime import UTC, datetime
@@ -37,6 +38,9 @@ AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
 CSV_HEADER = ("id", "kind", "severity", "key", "source", "message", "details", "run_id")
 EVIL = '=HYPERLINK("http://x")<script>alert(1)</script>|`*_[a](b)&amp;'
 SCHEMA = json.loads(files("faithful_pakad").joinpath("schema/report-v1.schema.json").read_text())
+MANIFEST_SCHEMA = json.loads(
+    files("faithful_pakad").joinpath("schema/manifest-v1.schema.json").read_text()
+)
 
 
 def make_report(
@@ -146,7 +150,34 @@ def test_render_all_names() -> None:
         "pakad-report.json",
         "pakad-findings.csv",
         "pakad-report.md",
+        "pakad-manifest.json",
     }
+    assert list(out)[-1] == "pakad-manifest.json"
+
+
+@pytest.mark.parametrize("findings", [(), ALL_KINDS])
+def test_manifest_lists_every_file_with_its_digest(findings: tuple[Finding, ...]) -> None:
+    report = make_report(findings)
+    out = render_all(report, list(RENDERERS))
+    manifest = json.loads(out["pakad-manifest.json"])
+    jsonschema.validate(manifest, MANIFEST_SCHEMA, format_checker=jsonschema.FormatChecker())
+    assert manifest["run_id"] == report["run_id"]
+    assert manifest["generated_at"] == report["generated_at"]
+    assert manifest["tool"] == report["tool"]
+    assert [f["name"] for f in manifest["files"]] == list(out)[:-1]
+    for entry in manifest["files"]:
+        data = out[entry["name"]].encode("utf-8")
+        assert entry["bytes"] == len(data)
+        assert entry["sha256"] == hashlib.sha256(data).hexdigest()
+
+
+def test_manifest_covers_only_the_chosen_formats() -> None:
+    out = render_all(make_report(), ["csv"])
+    assert list(out) == ["pakad-findings.csv", "pakad-manifest.json"]
+    assert out["pakad-findings.csv"] == ",".join(CSV_COLUMNS) + "\r\n"
+    assert [f["name"] for f in json.loads(out["pakad-manifest.json"])["files"]] == [
+        "pakad-findings.csv"
+    ]
 
 
 def test_terminal_summary() -> None:

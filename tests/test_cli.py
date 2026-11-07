@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import runpy
@@ -42,6 +43,17 @@ def example_args(out: Path, *extra: str) -> list[str]:
     ]
 
 
+def assert_manifest_matches(directory: Path) -> None:
+    """Every file the manifest lists exists with the recorded size and SHA-256."""
+    manifest = json.loads((directory / "pakad-manifest.json").read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        data = (directory / entry["name"]).read_bytes()
+        assert len(data) == entry["bytes"], entry["name"]
+        assert hashlib.sha256(data).hexdigest() == entry["sha256"], entry["name"]
+    listed = {entry["name"] for entry in manifest["files"]} | {"pakad-manifest.json"}
+    assert {p.name for p in directory.iterdir() if p.name.startswith("pakad-")} == listed
+
+
 def stable(directory: Path, name: str) -> str:
     """Read a report with the parts that change between runs and releases replaced."""
     generated = json.loads((directory / "pakad-report.json").read_text(encoding="utf-8"))[
@@ -68,6 +80,18 @@ def test_example_matches_committed_sample_reports(
         assert stable(tmp_path, name) == stable(SAMPLE_DIR, name), (
             f"{name} is out of date; regenerate it as examples/README.md describes"
         )
+    for directory in (tmp_path, SAMPLE_DIR):
+        assert_manifest_matches(directory)
+    fresh = json.loads((tmp_path / "pakad-manifest.json").read_text(encoding="utf-8"))
+    sample = json.loads((SAMPLE_DIR / "pakad-manifest.json").read_text(encoding="utf-8"))
+    for manifest in (fresh, sample):
+        manifest.pop("generated_at")
+        manifest.pop("run_id")
+        manifest["tool"].pop("version")
+        for entry in manifest["files"]:
+            entry.pop("bytes")
+            entry.pop("sha256")
+    assert fresh == sample, "pakad-manifest.json is out of date; regenerate the sample reports"
     out = capsys.readouterr().out
     assert "7 errors and 2 warnings need review." in out
     assert "pakad-report.html  <- open this in a browser" in out
@@ -119,9 +143,28 @@ def test_clean_run_exits_zero(write: Callable[[str, str | bytes], Path], tmp_pat
     ]
     assert main([*args, "-f", "json,md"]) == ExitCode.OK
     assert sorted(p.name for p in (tmp_path / "o").iterdir()) == [
+        "pakad-manifest.json",
         "pakad-report.json",
         "pakad-report.md",
     ]
+
+
+def test_clean_run_csv_is_tied_to_its_run_by_the_manifest(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path
+) -> None:
+    """A findings CSV with no rows has nowhere to record its run; the manifest does."""
+    profile = write("p.toml", MINIMAL_PROFILE + "[collection]\npage_sizes = []\n")
+    exp = write("e.json", json.dumps([{"id": "1"}]))
+    col = write("c.csv", "uid\n1\n")
+    out = tmp_path / "o"
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(out)]
+    assert main([*args, "-f", "csv,json"]) == ExitCode.OK
+    assert (out / "pakad-findings.csv").read_bytes().count(b"\r\n") == 1
+    manifest = json.loads((out / "pakad-manifest.json").read_text(encoding="utf-8"))
+    report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+    assert manifest["run_id"] == report["run_id"]
+    assert [f["name"] for f in manifest["files"]] == ["pakad-findings.csv", "pakad-report.json"]
+    assert_manifest_matches(out)
 
 
 def test_reports_are_private_and_never_silently_overwritten(
@@ -131,7 +174,7 @@ def test_reports_are_private_and_never_silently_overwritten(
     if os.name == "posix":
         assert stat.S_IMODE((tmp_path / "pakad-report.json").stat().st_mode) == 0o600
     assert main(example_args(tmp_path, "-f", "json")) == ExitCode.INPUT_ERROR
-    assert "already exists; use --force to replace" in capsys.readouterr().err
+    assert "already exist; use --force to replace" in capsys.readouterr().err
     assert main(example_args(tmp_path, "-f", "json", "--force")) == ExitCode.FINDINGS
 
 
@@ -192,6 +235,9 @@ def test_example_profile_and_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out == (EXAMPLE_DIR / "profile.toml").read_text(encoding="utf-8")
     assert main(["schema"]) == ExitCode.OK
     assert json.loads(capsys.readouterr().out)["title"] == "pakad reconciliation report"
+    assert main(["schema", "manifest"]) == ExitCode.OK
+    assert json.loads(capsys.readouterr().out)["title"] == "pakad run manifest"
+    assert main(["schema", "other"]) == ExitCode.USAGE
 
 
 def test_version_and_help(capsys: pytest.CaptureFixture[str]) -> None:

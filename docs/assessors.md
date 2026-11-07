@@ -35,6 +35,8 @@ To reproduce the report yourself, run the same pakad version with the same profi
 
 All files from one run share a run ID. If the HTML, JSON, CSV, and Markdown files you received show different run IDs, they did not come from the same run.
 
+Ask for `pakad-manifest.json` with the reports. It lists every report file from the run with its SHA-256, which you can check with the commands in the preceding table. A matching hash shows the file is complete and unchanged since pakad wrote it. This covers a findings CSV with no rows, which has no other place to record its run. The manifest itself is not signed, so it detects accidents and partial copies; protect the set in your evidence system if you need to detect deliberate edits.
+
 ## Check the scope of the review
 
 Read three sections before relying on the findings:

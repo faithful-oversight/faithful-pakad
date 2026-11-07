@@ -4,11 +4,17 @@
 
 Guarantees, stated exactly:
 
-- Every file is complete before it appears under its final name. Files are
-  written to private temporary files in the target directory first.
+- Files are written to private temporary files in the target directory first,
+  then placed under their final names in order, so the last name in ``files``
+  appears last. pakad puts the manifest last, so a manifest means every other
+  file is in place.
+- On file systems with hard links, every file is complete before it appears
+  under its final name.
+- On file systems without hard links, such as FAT and exFAT, a file is created
+  exclusively under its final name and written there, so it is visible while
+  being written. If writing fails, pakad removes the file it created.
 - Without ``force``, an existing file is never replaced, even if it appears
-  after the initial check. Each file is linked into place, which fails if the
-  name already exists.
+  after the initial check. Placing a file fails if the name already exists.
 - With ``force``, existing files are moved aside before the new ones go in. If
   any step fails, pakad removes the new files it placed and restores the old
   ones, so the directory holds either the complete old set or the complete new
@@ -16,9 +22,13 @@ Guarantees, stated exactly:
 - New files are readable only by the current user on Linux and macOS. A
   symbolic link at a target name is replaced, never followed.
 
+One pakad process at a time may write to an output directory. Two runs writing
+to the same directory at once can remove or restore each other's files.
+
 A crash or power loss in the middle of publishing can still leave a mix of old
-and new files, plus ``.pakad-old-*`` backups. Every report carries the same run
-ID, so a mixed set is detectable: compare the run IDs.
+and new files, a partly written file on file systems without hard links, and
+``.pakad-old-*`` backups. The manifest lists the size and SHA-256 of every file
+from its run, so an incomplete or mixed set is detectable.
 """
 
 from __future__ import annotations
@@ -115,11 +125,31 @@ def _place_new(temp: Path, target: Path) -> None:
     except FileExistsError:
         raise
     except OSError:
-        # Some file systems, such as FAT, have no hard links. Exclusive creation
-        # still refuses to overwrite, but writes the content in place.
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(temp.read_bytes())
+        _copy_new(temp, target)
+
+
+def _copy_new(temp: Path, target: Path) -> None:
+    """Fallback for file systems with no hard links: create exclusively, then write.
+
+    The name is created with ``O_EXCL``, so it belongs to this run until the
+    content is complete. Any failure after that removes it again.
+    """
+    data = temp.read_bytes()
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        handle = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        target.unlink(missing_ok=True)
+        raise
+    try:
+        with handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
 
 
 def _replace_all(directory: Path, pairs: list[tuple[Path, Path]]) -> None:

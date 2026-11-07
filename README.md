@@ -63,6 +63,7 @@ Open `./pakad-demo/report/pakad-report.html` in any browser. The example data is
 | `pakad-report.json` | Automation. Follows a published, versioned [JSON Schema](src/faithful_pakad/schema/report-v1.schema.json). |
 | `pakad-findings.csv` | Spreadsheets and ticketing. Protected against formula injection. |
 | `pakad-report.md` | Pull requests, tickets, and change records. |
+| `pakad-manifest.json` | Evidence handling. The run ID and the SHA-256 of every other report file, written last. |
 
 Exit codes make pakad easy to use in pipelines: `0` no findings, `1` findings, `2` usage error, `3` input or output error, and `4` an internal error, so a crash is never mistaken for findings. Use `--fail-on error` to pass when there are only warnings.
 

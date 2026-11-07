@@ -44,6 +44,13 @@ class ExitCode(IntEnum):
 FAIL_ON = ("any", "error", "never")
 
 
+SCHEMAS = {
+    "report": "schema/report-v1.schema.json",
+    "manifest": "schema/manifest-v1.schema.json",
+}
+"""Schemas ``pakad schema`` can print, by document."""
+
+
 def _timestamp(text: str) -> datetime:
     if parse_timestamp(text, assume_utc=True) is None:
         msg = f"not an ISO 8601 timestamp: {text!r}"
@@ -127,7 +134,16 @@ def build_parser() -> argparse.ArgumentParser:
     example.add_argument("--force", action="store_true", help="overwrite existing files")
 
     commands.add_parser("example-profile", help="print a commented example profile")
-    commands.add_parser("schema", help="print the JSON Schema for the JSON report")
+    schema = commands.add_parser(
+        "schema", help="print the JSON Schema for the JSON report or the run manifest"
+    )
+    schema.add_argument(
+        "document",
+        nargs="?",
+        choices=sorted(SCHEMAS),
+        default="report",
+        help="which schema to print (default: report)",
+    )
     return parser
 
 
@@ -219,7 +235,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "check-profile": _check_profile,
     "example": lambda args: _example(args.directory, force=args.force),
     "example-profile": _print_resource("data/profile.toml"),
-    "schema": _print_resource("schema/report-v1.schema.json"),
+    "schema": lambda args: _print_resource(SCHEMAS[args.document])(args),
 }
 
 
