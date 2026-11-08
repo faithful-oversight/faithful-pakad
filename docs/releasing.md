@@ -17,7 +17,7 @@ The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). 
 
 ## What the workflow does
 
-1. **Preflight.** Confirms it runs on `main`, that the version has a dated changelog section, that no tag for the version exists on another commit, and that the **All checks passed** check succeeded on the commit.
+1. **Preflight.** Confirms it runs on `main`, that the version has a dated changelog section, that no tag for the version exists on another commit, and that the **All checks passed** check succeeded on the commit. If CI is still running, for example right after a merge, preflight waits for it, up to 20 minutes.
 2. **Checks.** Runs the full check suite again.
 3. **Build.** Builds the wheel and source distribution once, with the pinned, hash-verified build backend in `requirements-build.txt`, then installs that exact wheel in a clean environment and runs the example end to end. Every later step publishes these same bytes; nothing is rebuilt. Builds are reproducible, so the same commit gives the same bytes.
 4. **Evidence.** Writes a CycloneDX software bill of materials and a `SHA256SUMS` file with `scripts/release_evidence.sh`. The bill of materials takes its timestamp from the commit and has no random serial number. The check suite then builds everything a second time and stops unless every byte, bill of materials included, matches. Because the output depends only on the commit, a rerun of the workflow produces the files a draft already holds.

@@ -18,7 +18,7 @@ jobs:
     name: Preflight
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
       checks: read # confirm CI passed on the release commit
@@ -37,7 +37,7 @@ jobs:
         run: |
           version="$(uv run --no-project python scripts/release_preflight.py "$RUNNER_TEMP/notes.md")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-      - name: Require a passing CI run on this commit
+      - name: Require a passing CI run on this commit, waiting for one in progress
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -45,12 +45,26 @@ jobs:
         run: |
           # 15368 is the GitHub Actions app, so a check from another app cannot satisfy this.
           query="check_name=All%20checks%20passed&filter=latest&app_id=15368"
-          conclusion="$(gh api "repos/${REPO}/commits/${SHA}/check-runs?${query}" \
-            --jq '[.check_runs[] | select(.conclusion == "success")] | length')"
-          if [ "$conclusion" = "0" ]; then
-            echo "::error::CI has not passed on ${SHA}"
-            exit 1
-          fi
+          # CI on a fresh merge can still be running; wait up to 20 minutes for it.
+          deadline=$(( $(date +%s) + 1200 ))
+          while :; do
+            # shellcheck disable=SC2016 # $c is a jq variable, not a shell one
+            state="$(gh api "repos/${REPO}/commits/${SHA}/check-runs?${query}" --jq '
+              [.check_runs[] | .conclusion // "pending"] as $c
+              | if ($c | index("success")) then "success"
+                elif ($c | length) == 0 or ($c | index("pending")) then "pending"
+                else "failed" end')"
+            case "$state" in
+              success) echo "CI passed on ${SHA}"; exit 0 ;;
+              failed) echo "::error::CI failed on ${SHA}; fix main, then run the release again"; exit 1 ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::CI has not finished on ${SHA} after 20 minutes; check CI, then run the release again"
+              exit 1
+            fi
+            echo "CI is still running on ${SHA}; checking again in 30 seconds"
+            sleep 30
+          done
 
   checks:
     name: Full check suite

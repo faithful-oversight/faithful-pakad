@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow waits up to 20 minutes for CI to finish on the release commit, instead of failing when it is started right after a merge.
+
 ## [0.1.0] - 2026-11-07
 
 First release.
