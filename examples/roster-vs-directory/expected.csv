@@ -1,0 +1,10 @@
+employee_id,display_name,department,status
+000101,Avery Example,Finance,active
+000102,Blake Sample,Finance,active
+000103,Casey Placeholder,Engineering,active
+000104,Devon Testcase,Engineering,terminated
+000105,Emery Fixture,Security,active
+000106,Finley Mock,Security,active
+000107,Gray Synthetic,Operations,active
+A0108,Harper Contractor,Operations,active
+000109,Indigo Dummy,Legal,active

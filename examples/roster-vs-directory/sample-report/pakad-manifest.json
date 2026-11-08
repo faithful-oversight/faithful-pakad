@@ -1,0 +1,32 @@
+{
+  "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json",
+  "schema_version": "1.0",
+  "tool": {
+    "name": "pakad",
+    "version": "0.1.0"
+  },
+  "run_id": "7054929deee74c35b006ab44605a4654",
+  "generated_at": "2026-11-07T23:24:18+00:00",
+  "files": [
+    {
+      "name": "pakad-report.html",
+      "bytes": 13133,
+      "sha256": "496ac464dff8e184900a0ca64920145c663ae9155de41b797f60d7808b942e08"
+    },
+    {
+      "name": "pakad-report.json",
+      "bytes": 6739,
+      "sha256": "b62637c26e34b4b1a763951c56452e1f2fdfa03323a985f88ed45f1905883732"
+    },
+    {
+      "name": "pakad-findings.csv",
+      "bytes": 2037,
+      "sha256": "13a5667d8b9dfc741f78c05bbaea99357b41dca4807d8c66eefcf3f203146ea4"
+    },
+    {
+      "name": "pakad-report.md",
+      "bytes": 5945,
+      "sha256": "186421fc4857ce3e416324fb17811b08b1daf312a21cbd23b43bb2fdb08d6780"
+    }
+  ]
+}

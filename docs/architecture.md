@@ -1,37 +1,42 @@
 # Architecture
 
-> **Status: planned.** This page describes the intended design. It changes as the design is decided and recorded in [architecture decision records](adr/).
-
-## Shape of the tool
-
-pakad is a command-line tool and a Python library with the same core.
+pakad is a command-line tool and a Python library with no runtime dependencies beyond the Python standard library.
 
 ```text
-inputs (CSV and JSON exports supplied by the operator)
-        |
-        v
-  adapters   -> read one input format each, and record what they could not read
-        |
-        v
-  model      -> typed, validated records with a link back to each source record
-        |
-        v
-  analysis   -> pure functions: records in, findings out, no input or output
-        |
-        v
-  reporters  -> Markdown, HTML, CSV, and JSON output
+profile.toml ──► profile   strict validation, typed settings
+inputs       ──► readers   CSV and JSON to text-only tables, with source line numbers
+                    │
+                    ▼
+                 reconcile pure function: tables in, findings and unknowns out
+                    │
+                    ▼
+                 outputs   one report document, rendered as HTML, JSON, CSV, Markdown
+                    │
+                    ▼
+                 cli       arguments, file writing, exit codes
 ```
+
+| Module | Responsibility |
+| --- | --- |
+| `profile` | Parse and validate the TOML profile. Unknown settings are errors. |
+| `readers` | Read inputs safely: size limit, strict decoding, no type conversion. |
+| `normalize` | Named, explicit normalization steps. |
+| `reconcile` | Matching and every check. No file access, no output, no clock. |
+| `model` | Data types and the finding kinds, which are part of the output contract. |
+| `outputs` | Build the report document, render each format with format-specific escaping, and write files all at once. |
+| `cli` | Command-line interface. |
 
 ## Rules the design follows
 
-- **Separation.** Adapters handle input, analysis is pure logic, and reporters handle output. Analysis never reads files or prints.
-- **A versioned contract.** Machine-readable output follows a published JSON Schema with a version number. Breaking changes to the schema require a major release.
-- **No prompts.** The tool never asks questions interactively, so it runs unchanged in scripts and pipelines.
-- **Structured exit codes.** `0` means success with no findings, `1` means findings were reported, `2` means the command was used incorrectly, and `3` means the input could not be processed.
-- **Unknowns are results.** When the tool cannot verify something, it reports *unknown* with the reason, never *passed*.
-- **Read-only and offline.** The tool does not change the systems it examines and does not need network access.
+- **Separation.** Readers handle input, `reconcile` is pure logic, and the renderers handle output. The engine never reads files or prints.
+- **One report document.** Every format is rendered from the same document, so the formats cannot disagree.
+- **A versioned contract.** The JSON report follows a published JSON Schema. See [Reports and findings](output.md) for the compatibility promise.
+- **No prompts.** pakad never asks questions, so it runs unchanged in scripts and pipelines.
+- **Structured exit codes.** `0` success, `1` findings, `2` usage error, `3` input or output error, `4` internal error.
+- **Careful output.** Reports are complete before they appear, are never overwritten without `--force`, and are swapped in with rollback on failure. A shared run ID and a manifest of file hashes, written last, make any partial or mixed set detectable.
+- **Unknowns are results.** When pakad cannot check something, it reports it as not verified, never as passed.
+- **Read-only and offline.** No network code and no telemetry.
 
-## Packaging
+## Decisions
 
-- Python package on PyPI: `faithful-pakad`, with the command `pakad`.
-- Further formats, such as a standalone executable or a container image, are added only when a decision record justifies them.
+Significant decisions are recorded in [architecture decision records](adr/index.md).

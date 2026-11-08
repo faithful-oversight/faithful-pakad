@@ -1,0 +1,13 @@
+employeeID,sAMAccountName,domain,accountEnabled,collectedAt
+000101,avery.example,corp.example,TRUE,2026-11-07T06:00:00Z
+000102,blake.sample,corp.example,TRUE,2026-11-07T06:00:00Z
+000103,casey.placeholder,corp.example,TRUE,2026-11-07T06:00:00Z
+000104,devon.testcase,corp.example,TRUE,2026-11-07T06:00:00Z
+000105,emery.fixture,eu.corp.example,TRUE,2026-11-07T06:00:00Z
+000105,emery.fixture2,eu.corp.example,TRUE,2026-11-07T06:00:00Z
+000107,gray.synthetic,eu.corp.example,TRUE,2026-11-04T06:00:00Z
+ A0108,harper.contractor,eu.corp.example,TRUE,2026-11-07T06:00:00Z
+a0108,harper.c,eu.corp.example,TRUE,2026-11-07T06:00:00Z
+000109,indigo.dummy,eu.corp.example,TRUE,2026-11-07 06:00:00
+000110,jordan.unlisted,corp.example,TRUE,2026-11-07T06:00:00Z
+,svc.backup,corp.example,TRUE,2026-11-07T06:00:00Z

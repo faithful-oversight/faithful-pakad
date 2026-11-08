@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json",
+  "title": "pakad reconciliation report",
+  "description": "Version 1 of the machine-readable report written by pakad. A minor version (1.1, 1.2) may add optional properties or new finding kinds and ships a matching schema; validate a report with the schema for its schema_version, which `pakad schema` prints offline. Removing or changing a property needs a new major version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "tool",
+    "run_id",
+    "generated_at",
+    "as_of",
+    "profile",
+    "inputs",
+    "summary",
+    "rules",
+    "unknowns",
+    "findings"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "pakad"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Random identifier shared by every file from one run, so a mixed set of report files is detectable."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "file",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "collected"
+      ],
+      "properties": {
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "sha256",
+            "bytes",
+            "records",
+            "columns"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "collected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "sha256",
+            "bytes",
+            "records",
+            "columns"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_records",
+        "collected_records",
+        "matched_keys",
+        "errors",
+        "warnings",
+        "findings_by_kind"
+      ],
+      "properties": {
+        "expected_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "collected_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched_keys": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings_by_kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "missing",
+            "unexpected",
+            "duplicate-key",
+            "ambiguous-key",
+            "blank-key",
+            "field-mismatch",
+            "missing-source",
+            "stale-record",
+            "invalid-timestamp",
+            "possible-truncation",
+            "empty-input"
+          ],
+          "properties": {
+            "missing": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unexpected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicate-key": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ambiguous-key": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blank-key": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "field-mismatch": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missing-source": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stale-record": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalid-timestamp": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "possible-truncation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "empty-input": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check",
+          "reason"
+        ],
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "severity",
+          "message",
+          "key",
+          "refs",
+          "details"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[0-9]{5,}$"
+          },
+          "kind": {
+            "enum": [
+              "missing",
+              "unexpected",
+              "duplicate-key",
+              "ambiguous-key",
+              "blank-key",
+              "field-mismatch",
+              "missing-source",
+              "stale-record",
+              "invalid-timestamp",
+              "possible-truncation",
+              "empty-input"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "key": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "input",
+                "file",
+                "row",
+                "unit"
+              ],
+              "properties": {
+                "input": {
+                  "enum": [
+                    "expected",
+                    "collected"
+                  ]
+                },
+                "file": {
+                  "type": "string"
+                },
+                "row": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "unit": {
+                  "enum": [
+                    "line",
+                    "item"
+                  ],
+                  "description": "line: physical CSV line where the record starts (header is line 1). item: 1-based position in a JSON array."
+                }
+              }
+            }
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

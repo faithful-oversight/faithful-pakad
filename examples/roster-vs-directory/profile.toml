@@ -1,0 +1,35 @@
+# pakad reconciliation profile. Reference: docs/profile.md
+version = 1
+name = "HR roster vs directory export"
+
+# The population that should exist.
+[expected]
+key = ["employee_id"]          # one or more columns that identify a record
+# format = "auto"              # auto (from the file extension), csv, or json
+# delimiter = ","              # CSV only; default is "," (tab for .tsv)
+# encoding = "utf-8-sig"       # default; handles files with or without a BOM
+
+# What was actually collected.
+[collected]
+key = ["employeeID"]           # same number of columns as expected.key, in the same order
+
+# How keys are compared. Steps run in order: strip, casefold, collapse-whitespace, nfkc.
+[match]
+normalize = ["strip", "casefold"]
+
+# Fields compared on every matched pair. Repeat [[compare]] for more fields.
+[[compare]]
+expected = "status"
+collected = "accountEnabled"
+normalize = ["strip", "casefold"]
+# Collected value = the expected value it counts as, after normalization.
+equivalents = { "true" = "active", "false" = "terminated" }
+
+# Checks on the collected export as a whole.
+[collection]
+source_column = "domain"
+expected_sources = ["corp.example", "eu.corp.example", "apac.corp.example"]
+captured_at_column = "collectedAt"
+max_age_hours = 24
+naive_timestamps = "reject"    # reject or utc: how to treat timestamps with no time zone
+page_sizes = [1000, 1500, 5000] # warn when a count is an exact multiple; [] turns this off

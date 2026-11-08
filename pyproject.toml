@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "faithful-pakad"
-version = "0.0.0"
+version = "0.1.0"
 description = "Evidence Population Reconciler: Reconciles an expected population against a collected evidence export and reports exactly what is missing, extra, ambiguous, or stale."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Faithful Oversight, LLC" }]
 keywords = ["audit", "evidence", "reconciliation", "identity", "compliance"]
 classifiers = [
-  "Development Status :: 1 - Planning",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Intended Audience :: System Administrators",
   "Intended Audience :: Information Technology",
@@ -44,8 +44,11 @@ Security = "https://github.com/faithful-oversight/faithful-pakad/blob/main/SECUR
 dev = [
   "codespell>=2.4",
   "cyclonedx-bom>=7",
+  "furo>=2025.12.19",
   "hypothesis>=6.100",
+  "jsonschema>=4.23",
   "mypy>=1.15",
+  "myst-parser>=5",
   "pip-audit>=2.9",
   "pre-commit>=4",
   "pymarkdownlnt>=0.9.30",
@@ -54,7 +57,9 @@ dev = [
   "reuse>=5",
   "ruff>=0.11",
   "shellcheck-py>=0.10",
+  "sphinx>=9",
   "twine>=6",
+  "types-jsonschema>=4.23",
   "vale>=3.9",
   "yamllint>=1.37",
   "zizmor>=1.14",
@@ -62,7 +67,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "LICENSE", "NOTICE", "README.md", "CHANGELOG.md"]
+include = ["src", "tests", "docs", "examples", "LICENSE", "NOTICE", "README.md", "CHANGELOG.md"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/faithful_pakad"]
@@ -87,7 +92,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "D103"]
+"tests/**" = [
+  "S101",     # assert is how pytest checks
+  "PLR2004",  # literal values are clearer in tests
+  "D102",     # test doubles mirror documented interfaces
+  "D103",     # test names describe the test
+  "D107",
+  "ARG002",   # test doubles accept arguments they ignore
+  "EM101",    # short messages in test doubles
+  "TRY003",
+]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
