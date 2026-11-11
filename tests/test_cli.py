@@ -482,6 +482,51 @@ def test_error_messages_show_names_that_are_not_utf8_as_escapes(
     assert "cannot read profile missing\\xff.csv" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "case", [("utf-7", b"id\n+2AA-\n"), ("unicode_escape", b"id\n\\ud800\n")], ids=str
+)
+@pytest.mark.parametrize("side", ["expected", "collected"])
+def test_csv_text_with_an_unpaired_surrogate_is_an_input_error(
+    write: Callable[[str, str | bytes], Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    case: tuple[str, bytes],
+    side: str,
+) -> None:
+    """Some encodings decode to lone surrogates; they must not crash the run with exit 4."""
+    encoding, payload = case
+    sides = {"expected": 'key = ["id"]\n', "collected": 'key = ["id"]\n'}
+    sides[side] += f'encoding = "{encoding}"\n'
+    profile = write(
+        "p.toml",
+        'version = 1\nname = "t"\n' + "".join(f"[{name}]\n{body}" for name, body in sides.items()),
+    )
+    bad = write("bad.csv", payload)
+    good = write("good.csv", b"id\n1\n")
+    exp, col = (bad, good) if side == "expected" else (good, bad)
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col)]
+    assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert err.startswith("pakad: error: bad.csv: line 2, column 1 contains an unpaired surrogate")
+    assert "Traceback" not in err
+    assert not (tmp_path / "o").exists()
+
+
+def test_csv_header_with_an_unpaired_surrogate_is_an_input_error(
+    write: Callable[[str, str | bytes], Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile = write("p.toml", MINIMAL_PROFILE.replace('["id"]', '["id"]\nencoding = "utf-7"', 1))
+    bad = write("bad.csv", b"id,+2AA-\n1,2\n")
+    good = write("good.csv", b"uid\n1\n")
+    args = ["reconcile", "-p", str(profile), "-e", str(bad), "-c", str(good)]
+    assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "bad.csv: line 1, column 2 contains an unpaired surrogate" in err
+    assert "Traceback" not in err
+
+
 def test_internal_errors_print_only_the_type_and_a_short_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

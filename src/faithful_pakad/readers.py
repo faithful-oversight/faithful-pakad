@@ -31,6 +31,7 @@ JSON_LIST_KEYS = ("value", "records")
 MAX_JSON_DEPTH = 64
 """Nested JSON values deeper than this are an input error, on every Python version."""
 _SURROGATE = re.compile("[\ud800-\udfff]")
+_SURROGATE_MESSAGE = "contains an unpaired surrogate, which is not valid Unicode text"
 
 csv.field_size_limit(MAX_FIELD_CHARS)
 
@@ -109,6 +110,7 @@ def _read_csv(
         if not header:
             msg = f"{name}: the file is empty or has no header row"
             raise InputError(msg)
+        _reject_surrogates(header, name, 1)
         columns = _check_header(header, name)
         records: list[Record] = []
         last_line = reader.line_num
@@ -117,6 +119,7 @@ def _read_csv(
             last_line = reader.line_num
             if not row:
                 continue
+            _reject_surrogates(row, name, start)
             if len(row) > len(columns):
                 msg = (
                     f"{name}: line {start} has {len(row)} fields but the header has {len(columns)}"
@@ -129,6 +132,19 @@ def _read_csv(
         msg = f"{name}: malformed CSV near line {reader.line_num}: {exc}"
         raise InputError(msg) from exc
     return columns, tuple(records)
+
+
+def _reject_surrogates(fields: list[str], name: str, line: int) -> None:
+    """Refuse a CSV row with an unpaired surrogate, naming its line and column.
+
+    Some configured encodings, such as ``utf-7`` and ``unicode_escape``, decode
+    bytes to lone surrogates. They cannot be written to a report, and replacing
+    them would make different identifiers look identical.
+    """
+    for number, field in enumerate(fields, start=1):
+        if _SURROGATE.search(field):
+            msg = f"{name}: line {line}, column {number} {_SURROGATE_MESSAGE}"
+            raise InputError(msg)
 
 
 def _check_header(header: list[str], name: str) -> tuple[str, ...]:
@@ -162,8 +178,7 @@ def _check_text(text: str) -> str:
     make different identifiers look identical, so pakad refuses them instead.
     """
     if _SURROGATE.search(text):
-        msg = "contains an unpaired surrogate escape, which is not valid Unicode text"
-        raise _UnusableValueError(msg)
+        raise _UnusableValueError(_SURROGATE_MESSAGE)
     return text
 
 
