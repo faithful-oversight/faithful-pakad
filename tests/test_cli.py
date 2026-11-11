@@ -441,3 +441,42 @@ def test_error_messages_cannot_inject_terminal_codes(
     err = capsys.readouterr().err
     assert "\x1b" not in err
     assert "other\\u001b[2J" in err
+
+
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="Windows and macOS file systems cannot hold file names that are not valid UTF-8",
+)
+def test_input_file_names_that_are_not_utf8_are_shown_as_escapes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = tmp_path / os.fsdecode(b"profile\xff.toml")
+    expected = tmp_path / os.fsdecode(b"expected\xff.csv")
+    collected = tmp_path / os.fsdecode(b"collected\xff.csv")
+    for target, name in ((profile, "profile.toml"), (expected, "expected.csv")):
+        target.write_bytes((EXAMPLE_DIR / name).read_bytes())
+    collected.write_bytes((EXAMPLE_DIR / "collected.csv").read_bytes())
+    out = tmp_path / "out"
+    args = ["reconcile", "-p", str(profile), "-e", str(expected), "-c", str(collected)]
+    assert main([*args, "-o", str(out), "--as-of", AS_OF]) == ExitCode.FINDINGS
+    capsys.readouterr()
+
+    report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+    assert report["profile"]["file"] == "profile\\xff.toml"
+    assert report["inputs"]["expected"]["file"] == "expected\\xff.csv"
+    assert report["inputs"]["collected"]["file"] == "collected\\xff.csv"
+    assert_manifest_matches(out)
+    for text in out.iterdir():
+        text.read_text(encoding="utf-8")  # every report file is valid UTF-8
+
+
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="Windows and macOS file systems cannot hold file names that are not valid UTF-8",
+)
+def test_error_messages_show_names_that_are_not_utf8_as_escapes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / os.fsdecode(b"missing\xff.csv")
+    assert main(["check-profile", str(missing)]) == ExitCode.INPUT_ERROR
+    assert "cannot read profile missing\\xff.csv" in capsys.readouterr().err

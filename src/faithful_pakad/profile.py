@@ -15,14 +15,15 @@ import hashlib
 import math
 import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from faithful_pakad.errors import ProfileError
+from faithful_pakad.names import display_name
 from faithful_pakad.normalize import STEPS, normalize
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from pathlib import Path
 
 SUPPORTED_VERSION = 1
 FORMATS = ("auto", "csv", "json")
@@ -309,15 +310,15 @@ def load_profile(path: Path) -> Profile:
     """
     try:
         if path.stat().st_size > MAX_PROFILE_BYTES:
-            msg = f"{path.name}: profile is larger than {MAX_PROFILE_BYTES} bytes"
+            msg = f"{display_name(path)}: profile is larger than {MAX_PROFILE_BYTES} bytes"
             raise ProfileError(msg)
         raw = path.read_bytes()
     except OSError as exc:
-        msg = f"cannot read profile {path.name}: {exc.strerror}"
+        msg = f"cannot read profile {display_name(path)}: {exc.strerror}"
         raise ProfileError(msg) from exc
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        msg = f"{path.name}: profile must be UTF-8 text"
+        msg = f"{display_name(path)}: profile must be UTF-8 text"
         raise ProfileError(msg) from exc
-    return parse_profile(text, file=Path(path).name, sha256=hashlib.sha256(raw).hexdigest())
+    return parse_profile(text, file=display_name(path), sha256=hashlib.sha256(raw).hexdigest())

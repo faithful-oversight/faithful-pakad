@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from faithful_pakad.errors import InputError
 from faithful_pakad.model import Record, Side, SourceRef, Table, Value
+from faithful_pakad.names import display_name
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +52,7 @@ def read_table(
     Raises:
         InputError: The file cannot be read, is too large, or is malformed.
     """
-    name = path.name
+    name = display_name(path)
     try:
         with path.open("rb") as handle:
             raw = handle.read(max_bytes + 1)
@@ -92,7 +93,10 @@ def _detect_format(path: Path) -> str:
         return "csv"
     if suffix == ".json":
         return "json"
-    msg = f"{path.name}: cannot tell the format from the extension; set format in the profile"
+    msg = (
+        f"{display_name(path)}: cannot tell the format from the extension; "
+        "set format in the profile"
+    )
     raise InputError(msg)
 
 
