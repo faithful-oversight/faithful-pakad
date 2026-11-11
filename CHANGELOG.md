@@ -6,9 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-11
+
+### Fixed
+
+- Invisible characters are now escaped more completely: zero-width and other format characters, line and paragraph separators, filler characters, tag characters, and variation selectors, with eight-digit escapes outside the Basic Multilingual Plane.
+- The terminal now shows a carriage return and a tab in input text as `\r` and `\t`, so they cannot overwrite earlier output.
+- An input or profile filename that is not valid UTF-8 no longer crashes the run with exit 4; the bad byte shows as `\xff` in reports and the manifest.
+- An internal error now prints only the error type and a short message, not the whole exception, which could dump an entire report to the terminal.
+
 ### Changed
 
 - The release workflow waits up to 20 minutes for CI to finish on the release commit, instead of failing when it is started right after a merge.
+- The license check now also reads optional extras, skips requirements for other platforms, and accepts an SPDX-style License field; the dependency review allow list adds MIT-0 and MPL-2.0.
 
 ## [0.1.0] - 2026-11-07
 

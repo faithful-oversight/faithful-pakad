@@ -35,7 +35,7 @@ pipx install faithful-pakad
 Until the first release reaches PyPI, install from a release's wheel file or from source:
 
 ```shell
-pipx install ./faithful_pakad-0.1.0-py3-none-any.whl
+pipx install ./faithful_pakad-0.1.1-py3-none-any.whl
 ```
 
 ## Try it in one minute

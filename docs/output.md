@@ -49,7 +49,7 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 ```json
 {
   "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.0"},
+  "tool": {"name": "pakad", "version": "0.1.1"},
   "summary": {"expected_records": 9, "collected_records": 12, "matched_keys": 8,
               "errors": 7, "warnings": 2, "findings_by_kind": {"missing": 1, "...": 0}},
   "findings": [
@@ -84,7 +84,7 @@ Every run also writes `pakad-manifest.json`, after every other file. It records 
 {
   "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json",
   "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.0"},
+  "tool": {"name": "pakad", "version": "0.1.1"},
   "run_id": "4f3c1e0a9b7d4c2e8f6a5b3c1d0e9f8a",
   "generated_at": "2026-11-07T12:00:00+00:00",
   "files": [
@@ -109,7 +109,9 @@ The manifest covers only the files from its own run. A report file it does not l
 
 ## Invisible characters
 
-Input values can contain characters that change how text looks rather than what it says, such as terminal escape sequences or right-to-left override marks that make `exe.txt` display as `txt.exe`. The HTML, Markdown, and CSV reports and the terminal show these as visible escapes like `\u202e`. The JSON report keeps the exact values.
+Input values can contain characters that change how text looks rather than what it says, such as terminal escape sequences or right-to-left override marks that make `exe.txt` display as `txt.exe`. The HTML, Markdown, and CSV reports and the terminal show these as visible escapes. That covers control characters, zero-width and other format characters, line and paragraph separators, bidirectional marks, characters that draw nothing, tag characters, and variation selectors. A character in the Basic Multilingual Plane shows as `\u202e`; any other shows with eight digits, such as `\U000e0041`. Tabs and line breaks are kept in the files, and the terminal shows a carriage return and a tab as `\r` and `\t` so they cannot move the cursor. The JSON report keeps the exact values.
+
+Input filenames are treated the same way. A byte in a filename that is not valid UTF-8, such as `0xff`, is recorded in the reports and the manifest as `\xff`, and the run still completes.
 
 ## Composite keys and display
 

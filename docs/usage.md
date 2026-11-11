@@ -64,7 +64,7 @@ Only a crash or power loss while writing can leave a partial file or a mix of ol
 | `1` | Findings reached the `--fail-on` threshold. |
 | `2` | The command was used incorrectly, for example an unknown option. |
 | `3` | An input or output problem: a missing or malformed file, an invalid profile, or a report file that already exists. |
-| `4` | An internal error in pakad. This is a bug; please report it. |
+| `4` | An internal error in pakad. This is a bug; please report it. The message shows only the error type and the first 200 characters of its text. |
 
 ## Use in a pipeline
 
