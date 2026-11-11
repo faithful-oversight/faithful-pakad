@@ -372,6 +372,22 @@ def test_example_command_is_quoted_for_paths_with_spaces(
     assert quoted in out
 
 
+def test_multi_line_terminal_output_keeps_its_line_breaks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["example", str(tmp_path / "ex")]) == ExitCode.OK
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("Wrote a synthetic example to ")
+    assert lines[1] == ""
+    assert lines[2].startswith("  pakad reconcile ")
+
+    assert main(example_args(tmp_path / "out")) == ExitCode.FINDINGS
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("pakad ")
+    assert any(line.startswith("  expected ") for line in lines)
+    assert "Reports:" in lines
+
+
 @pytest.mark.skipif(os.name == "nt", reason="Windows does not allow control characters in names")
 def test_success_messages_cannot_inject_terminal_codes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
