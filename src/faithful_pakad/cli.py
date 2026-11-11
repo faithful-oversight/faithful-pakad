@@ -41,6 +41,9 @@ class ExitCode(IntEnum):
     INTERNAL_ERROR = 4
 
 
+MAX_INTERNAL_MESSAGE_CHARS = 200
+"""An internal error message is cut to this many characters, so a crash never dumps a report."""
+
 FAIL_ON = ("any", "error", "never")
 
 
@@ -239,6 +242,13 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 }
 
 
+def _short(message: str) -> str:
+    """Return a message cut to a short, terminal-safe line of text."""
+    if len(message) > MAX_INTERNAL_MESSAGE_CHARS:
+        message = message[:MAX_INTERNAL_MESSAGE_CHARS] + "..."
+    return terminal(message)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return an exit code."""
     parser = build_parser()
@@ -258,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(ExitCode.INPUT_ERROR)
     except Exception as exc:  # noqa: BLE001 - last resort, so a crash never looks like findings
         print(  # noqa: T201
-            f"pakad: internal error: {terminal(repr(exc))}\n"
+            f"pakad: internal error: {type(exc).__name__}: {_short(str(exc))}\n"
             "This is a bug. Please report it: "
             "https://github.com/faithful-oversight/faithful-pakad/issues",
             file=sys.stderr,

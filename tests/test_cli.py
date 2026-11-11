@@ -480,3 +480,19 @@ def test_error_messages_show_names_that_are_not_utf8_as_escapes(
     missing = tmp_path / os.fsdecode(b"missing\xff.csv")
     assert main(["check-profile", str(missing)]) == ExitCode.INPUT_ERROR
     assert "cannot read profile missing\\xff.csv" in capsys.readouterr().err
+
+
+def test_internal_errors_print_only_the_type_and_a_short_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*_: object, **__: object) -> None:
+        msg = "report: " + "x" * 5000 + "\x1b[2J"
+        raise ValueError(msg)
+
+    monkeypatch.setattr("faithful_pakad.cli.reconcile", boom)
+    assert main(example_args(tmp_path)) == ExitCode.INTERNAL_ERROR
+    err = capsys.readouterr().err
+    assert err.startswith("pakad: internal error: ValueError: report: xxx")
+    assert "..." in err
+    assert "\x1b" not in err
+    assert len(err) < 600
