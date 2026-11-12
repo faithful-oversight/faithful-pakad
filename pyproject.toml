@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "faithful-pakad"
-version = "0.1.0"
+version = "0.1.1"
 description = "Evidence Population Reconciler: Reconciles an expected population against a collected evidence export and reports exactly what is missing, extra, ambiguous, or stale."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -67,7 +67,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "examples", "LICENSE", "NOTICE", "README.md", "CHANGELOG.md"]
+include = ["src", "tests", "scripts", "docs", "examples", "LICENSE", "NOTICE", "README.md", "CHANGELOG.md"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/faithful_pakad"]

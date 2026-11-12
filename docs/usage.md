@@ -37,7 +37,7 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 pakad picks the format from the file extension: `.csv`, `.tsv`, and `.txt` are read as delimited text, and `.json` as JSON. Set `format` in the profile to override.
 
 - **CSV:** the first row is the header. Values are never converted, so `000123` stays `000123`. A row with fewer fields than the header has the missing values recorded as absent, which differs from empty. A row with more fields than the header stops the run with an input error that names the line, because pakad cannot tell which value belongs to which column.
-- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested arrays and objects become compact JSON text, up to 64 levels of arrays and objects inside one value. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable.
+- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested arrays and objects become compact JSON text, up to 64 levels of arrays and objects inside one value. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable. The same holds for CSV: if the configured `encoding` (for example `utf-7` or `unicode_escape`) decodes to an unpaired surrogate, the error names the file, line, and column.
 
 ### Report files
 
@@ -64,7 +64,7 @@ Only a crash or power loss while writing can leave a partial file or a mix of ol
 | `1` | Findings reached the `--fail-on` threshold. |
 | `2` | The command was used incorrectly, for example an unknown option. |
 | `3` | An input or output problem: a missing or malformed file, an invalid profile, or a report file that already exists. |
-| `4` | An internal error in pakad. This is a bug; please report it. |
+| `4` | An internal error in pakad. This is a bug; please report it. The message shows only the error type and the first 200 characters of its text. |
 
 ## Use in a pipeline
 
