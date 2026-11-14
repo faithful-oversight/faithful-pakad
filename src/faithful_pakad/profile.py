@@ -272,6 +272,9 @@ def parse_profile(text: str, *, file: str = "<profile>", sha256: str = "") -> Pr
     except tomllib.TOMLDecodeError as exc:
         msg = f"profile is not valid TOML: {exc}"
         raise ProfileError(msg) from exc
+    except RecursionError as exc:
+        msg = "profile is nested too deeply"
+        raise ProfileError(msg) from exc
     root = _Section(data, "profile")
     version = root.raw("version")
     # The exact type matters: Python treats true and 1.0 as equal to 1.

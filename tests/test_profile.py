@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from faithful_pakad.cli import ExitCode, main
 from faithful_pakad.errors import ProfileError
 from faithful_pakad.profile import DEFAULT_PAGE_SIZES, load_profile, parse_profile
 from tests.conftest import EXAMPLE_DIR, MINIMAL_PROFILE
@@ -151,3 +152,24 @@ def test_huge_or_out_of_range_ages_are_profile_errors(age: str) -> None:
 def test_boundary_ages_are_accepted(age: str) -> None:
     text = MINIMAL_PROFILE + f"[collection]\ncaptured_at_column = 't'\nmax_age_hours = {age}\n"
     assert parse_profile(text).collection.max_age_hours == float(age)
+
+
+@pytest.mark.parametrize(
+    "nested",
+    ["x = " + "[" * 100_000, "x = " + "{a=" * 100_000, "[[a]]\nb = " + "[" * 100_000],
+    ids=["arrays", "inline-tables", "array-of-tables"],
+)
+def test_a_deeply_nested_profile_is_a_profile_error(nested: str) -> None:
+    """PAKAD-C08: tomllib raises RecursionError, which must not become exit 4."""
+    with pytest.raises(ProfileError, match="nested too deeply"):
+        parse_profile("version = 1\n" + nested + "\n")
+
+
+def test_a_deeply_nested_profile_file_gives_exit_3(
+    write: Callable[[str, str | bytes], Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write("deep.toml", "version = 1\nx = " + "[" * 100_000 + "]" * 100_000 + "\n")
+    assert main(["check-profile", str(path)]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "profile is nested too deeply" in err
+    assert "internal error" not in err
