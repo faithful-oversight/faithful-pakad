@@ -238,7 +238,32 @@ def test_missing_and_unexpected_show_the_raw_key() -> None:
 
 def test_unknowns_list_unconfigured_checks() -> None:
     checks = {u.check for u in run(NO_PAGING, [{"id": "1"}], [{"uid": "1"}]).unknowns}
-    assert checks == {"source coverage", "record freshness", "paging truncation"}
+    assert checks == {
+        "field comparison",
+        "source coverage",
+        "record freshness",
+        "paging truncation",
+    }
+
+
+def test_no_compare_fields_is_listed_as_not_checked_even_when_all_else_is_configured() -> None:
+    """PAKAD-C03: a presence-only profile must never read as a clean, complete pass."""
+    text = SOURCES.replace(
+        "page_sizes = []",
+        "page_sizes = [1000]\ncaptured_at_column = 'at'\nmax_age_hours = 24",
+    )
+    collected = [{"uid": "1", "domain": "a.example", "at": "2026-11-07T11:00:00Z"}]
+    collected.append({"uid": "2", "domain": "b.example", "at": "2026-11-07T11:00:00Z"})
+    result = run(text, [{"id": "1"}, {"id": "2"}], collected)
+    assert result.findings == ()
+    assert [u.check for u in result.unknowns] == ["field comparison"]
+    assert "[[compare]]" in result.unknowns[0].reason
+    assert "only key presence was compared" in result.unknowns[0].reason
+
+
+def test_configured_compare_is_not_listed_as_unchecked() -> None:
+    result = run(COMPARE, [{"id": "1", "status": "x"}], [{"uid": "1", "enabled": "x"}])
+    assert not any(u.check == "field comparison" for u in result.unknowns)
 
 
 def test_rules_describe_the_profile() -> None:

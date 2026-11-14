@@ -211,7 +211,7 @@ def test_markdown_escape_never_leaves_raw_markup(value: str) -> None:
         assert char not in unescaped.replace(f"\\{char}", "")
 
 
-@pytest.mark.parametrize("value", ["@SUM(A1)", "+1", "-1", "\t=x", "\uff1dcmd"])
+@pytest.mark.parametrize("value", ["@SUM(A1)", "+1", "-1+1", "\t=x", "\uff1dcmd"])
 def test_known_formula_prefixes(value: str) -> None:
     assert neutralize_formula(value) == "'" + value
 

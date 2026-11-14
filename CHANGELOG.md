@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- A profile with no `[[compare]]` fields now lists "field comparison" under Not verified, so a presence-only run is no longer reported as a clean pass.
 - The source archive's own tests now run in the build check: it unpacks the archive outside the checkout and runs the whole suite there, instead of only collecting the tests.
 - Editing a pull request title now reruns the title check, so a corrected title clears the required check.
 - The dependency audit writes its export to a private temporary directory, so a planted link or a second run at the same time cannot interfere.

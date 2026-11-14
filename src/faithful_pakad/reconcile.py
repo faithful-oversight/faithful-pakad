@@ -194,6 +194,15 @@ def _compare(
     unknowns: list[Unknown],
 ) -> Iterator[Finding]:
     if not profile.compare:
+        unknowns.append(
+            Unknown(
+                check="field comparison",
+                reason=(
+                    "Not checked: the profile lists no [[compare]] fields, "
+                    "so only key presence was compared."
+                ),
+            )
+        )
         return
     skipped = 0
     for key in matched:
