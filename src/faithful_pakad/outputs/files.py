@@ -57,7 +57,12 @@ def write_files(directory: Path, files: Mapping[str, str], *, force: bool) -> li
         msg = f"cannot create {directory}: {exc.strerror}"
         raise PakadError(msg) from exc
     targets = [directory / name for name in files]
-    _check_targets(targets, force=force)
+    try:
+        _check_targets(targets, force=force)
+    except OSError as exc:
+        # For example a directory that exists but cannot be searched.
+        msg = f"cannot check {directory} for existing reports: {exc.strerror}"
+        raise PakadError(msg) from exc
 
     staged: list[Path] = []
     try:

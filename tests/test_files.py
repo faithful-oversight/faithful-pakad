@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
 
@@ -125,3 +126,35 @@ def test_copy_fallback_never_removes_a_file_it_did_not_create(
             write_files(tmp_path, FILES, force=False)
     assert [p.name for p in tmp_path.iterdir()] == ["b.txt"]
     assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "someone else"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="needs POSIX permissions that a privileged user bypasses",
+)
+def test_a_directory_that_cannot_be_searched_is_an_input_error(tmp_path: Path) -> None:
+    """PAKAD-C07: mode 0600 on the output directory is exit 3, not an internal error."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o600)
+    try:
+        with pytest.raises(PakadError, match=r"cannot check .*locked"):
+            write_files(locked, {"a.txt": "x"}, force=False)
+    finally:
+        locked.chmod(0o700)
+
+
+def test_a_permission_error_while_checking_targets_is_an_input_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same case without needing a non-root user: the check itself raises."""
+
+    def refuse(self: Path, **_: object) -> bool:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", refuse)
+    with pytest.raises(
+        PakadError, match=r"cannot check .* for existing reports: Permission denied"
+    ):
+        write_files(tmp_path / "out", {"a.txt": "x"}, force=False)
+    assert not list((tmp_path / "out").glob("*"))
