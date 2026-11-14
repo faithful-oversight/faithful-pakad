@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The report now states a configured `max_age_hours` exactly (for example `1.23456789`, not `1.23457`), in both the rules applied and the stale-record details.
 - A profile's `equivalents` no longer turns identical values into a `field-mismatch`. A collected value that equals the expected value always matches; an equivalent only adds another accepted form.
 - A key repeated thousands of times no longer puts every source reference into one CSV cell, which went past a spreadsheet's 32,767-character limit. The CSV, HTML, and Markdown reports list the first 20 references and say how many more there are; the JSON report keeps all of them.
 - The note about findings left out of the HTML and Markdown reports now reads correctly for one finding ("1 more finding of this kind is in ...").

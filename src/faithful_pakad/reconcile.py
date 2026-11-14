@@ -352,9 +352,15 @@ def _freshness(
                 details={
                     "column": column,
                     "captured_at": when.isoformat(),
-                    "max_age_hours": f"{spec.max_age_hours:g}",
+                    "max_age_hours": _hours(spec.max_age_hours),
                 },
             )
+
+
+def _hours(value: float) -> str:
+    """Return an age limit exactly as configured: the shortest text that reads back the same."""
+    text = repr(value)
+    return text.removesuffix(".0")
 
 
 def _age(delta: timedelta) -> str:
@@ -435,10 +441,10 @@ def _rules(profile: Profile) -> tuple[str, ...]:
             f"Every expected source must appear in {spec.source_column}: "
             f"{', '.join(spec.expected_sources)}."
         )
-    if spec.captured_at_column:
+    if spec.captured_at_column and spec.max_age_hours is not None:
         rules.append(
             f"Records in {spec.captured_at_column} must be at most "
-            f"{spec.max_age_hours:g} hours old (naive timestamps: {spec.naive_timestamps})."
+            f"{_hours(spec.max_age_hours)} hours old (naive timestamps: {spec.naive_timestamps})."
         )
     if spec.page_sizes:
         rules.append(f"Warn when record counts are exact multiples of {_join(spec.page_sizes)}.")

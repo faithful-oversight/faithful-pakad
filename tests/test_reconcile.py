@@ -382,3 +382,16 @@ def test_an_equivalent_adds_an_accepted_form_and_never_hides_an_identical_value(
     # The mapping runs from the collected value to the expected value only.
     reverse = run(text, [{"id": "1", "enabled": "true"}], [{"uid": "1", "enabled": "active"}])
     assert kinds(reverse) == [Kind.FIELD_MISMATCH]
+
+
+@pytest.mark.parametrize(
+    ("configured", "shown"),
+    [("24", "24"), ("1.5", "1.5"), ("1.23456789", "1.23456789"), ("0.1", "0.1")],
+)
+def test_the_age_limit_is_reported_exactly_as_configured(configured: str, shown: str) -> None:
+    """PAKAD-C15: the report states the rule applied, not a rounded copy of it."""
+    text = FRESH.replace("max_age_hours = 24", f"max_age_hours = {configured}")
+    assert any(f"at most {shown} hours old" in rule for rule in parse_and_rules(text))
+    old = "2026-11-01T12:00:00Z"
+    stale = only(run(text, [{"id": "1"}], [{"uid": "1", "at": old}]), Kind.STALE_RECORD)
+    assert stale.details["max_age_hours"] == shown
