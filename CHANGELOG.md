@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- A large `--max-bytes` value no longer makes a tiny file fail with exit 4 (`MemoryError` or `OverflowError`). Files are now read in blocks.
+- An output directory that exists but cannot be searched (for example mode 0600) is now an input error (exit 3) with a clear message, not an internal error (exit 4).
+- A deeply nested profile is now a profile error (exit 3, "profile is nested too deeply") instead of an internal error (exit 4).
+- An empty JSON export (`[]` or `{"value": []}`) is now reported as an empty input, like a header-only CSV, instead of failing with "is missing 1 column".
 - When the summary cannot be printed (a closed pipe such as `pakad ... | head`, or output that cannot encode a character in a path), the run now keeps its real exit code instead of ending with exit 4. The reports were already written.
 - Error messages now name the whole path you gave, not only the file name. Reports still record only the file name.
 - A JSON export that says it is one page of a larger result (a non-empty `@odata.nextLink`, or an `@odata.count` or `count` that differs from the number of records) is now reported as a `possible-truncation` warning instead of being accepted as complete.
