@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 AS_OF = "2026-11-07T12:00:00Z"
 SAMPLE_DIR = EXAMPLE_DIR / "sample-report"
+NO_BREAK_SPACE = chr(0xA0)
 
 
 def example_args(out: Path, *extra: str) -> list[str]:
@@ -684,10 +685,10 @@ def test_a_no_break_space_in_a_key_is_visible_in_the_report(
     """PAKAD-C05: two keys that differ only by a look-alike space must not print the same."""
     profile = write("p.toml", MINIMAL_PROFILE)
     exp = write("e.csv", "id\nA 1\n")
-    col = write("c.csv", "uid\nA 1\n")
+    col = write("c.csv", "uid\nA" + NO_BREAK_SPACE + "1\n")
     args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(tmp_path)]
     assert main([*args, "-f", "md,csv,html"]) == ExitCode.FINDINGS
     for name in ("pakad-report.md", "pakad-findings.csv", "pakad-report.html"):
         text = (tmp_path / name).read_text(encoding="utf-8")
-        assert " " not in text, name
+        assert NO_BREAK_SPACE not in text, name
         assert "A\\u00a01" in text.replace("\\\\", "\\"), name

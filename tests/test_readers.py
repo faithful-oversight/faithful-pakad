@@ -289,3 +289,21 @@ def test_plain_arrays_and_csv_have_no_paging_signals(
 ) -> None:
     assert read_table(write("a.json", '[{"id": "1"}]'), SPEC, Side.EXPECTED).paging_signals == ()
     assert read_table(write("a.csv", "id\n1\n"), SPEC, Side.EXPECTED).paging_signals == ()
+
+
+@pytest.mark.parametrize("limit", [2**36, 2**40, 2**63 - 1, 2**63, 2**200])
+def test_a_huge_size_limit_does_not_fail_on_a_tiny_file(
+    write: Callable[[str, str | bytes], Path], limit: int
+) -> None:
+    """PAKAD-C06: the limit is a ceiling, not an amount of memory to reserve."""
+    assert read(write("a.csv", "id\nA1\n"), max_bytes=limit) == [{"id": "A1"}]
+
+
+def test_the_limit_is_exact_across_read_blocks(
+    write: Callable[[str, str | bytes], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("faithful_pakad.readers.READ_BLOCK_BYTES", 3)
+    path = write("a.csv", "id\n1234567\n")  # 11 bytes
+    assert len(read(path, max_bytes=11)) == 1
+    with pytest.raises(InputError, match="over the 10-byte limit"):
+        read(path, max_bytes=10)

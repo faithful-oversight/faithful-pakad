@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 MAX_FIELD_CHARS = 1024 * 1024
+READ_BLOCK_BYTES = 1024 * 1024
+"""Files are read in blocks of this size."""
 JSON_LIST_KEYS = ("value", "records")
 NEXT_LINK_KEYS = frozenset({"odata.nextlink", "nextlink"})
 """Wrapper properties (lower case, no leading ``@``) that name the next page of results."""
@@ -60,8 +62,7 @@ def read_table(
     name = display_name(path)
     where = error_path(path)
     try:
-        with path.open("rb") as handle:
-            raw = handle.read(max_bytes + 1)
+        raw = _read_limited(path, max_bytes)
     except OSError as exc:
         msg = f"cannot read {side} input {where}: {exc.strerror}"
         raise InputError(msg) from exc
@@ -94,6 +95,23 @@ def read_table(
         records=records,
         paging_signals=signals,
     )
+
+
+def _read_limited(path: Path, max_bytes: int) -> bytearray:
+    """Read a file, stopping one byte past ``max_bytes``.
+
+    The file is read in blocks, so a very large limit costs memory only for the
+    bytes that exist. ``read(max_bytes + 1)`` reserves the whole amount first,
+    which fails for a small file when the limit is large.
+    """
+    data = bytearray()
+    with path.open("rb") as handle:
+        while len(data) <= max_bytes:
+            block = handle.read(min(READ_BLOCK_BYTES, max_bytes + 1 - len(data)))
+            if not block:
+                break
+            data += block
+    return data
 
 
 def _detect_format(path: Path) -> str:
