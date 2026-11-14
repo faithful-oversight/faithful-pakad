@@ -25,5 +25,6 @@ The tool will not:
 ## Inputs
 
 - CSV and JSON only. Export spreadsheets to CSV first.
-- Each input is read fully into memory. Memory use is several times the file size, because every value is kept with its source line. The default limit is 256 MiB per file, adjustable with `--max-bytes`; lower it on machines with little memory.
+- Each input is read fully into memory, and every record is kept with its source line, so memory depends on the number of records far more than on the file size. Measured on Python 3.13, a whole run takes about 650 bytes per record for a one-column file of 8-byte rows, which is about 80 times the file size, and about 1,100 bytes per record for an eight-column file of roughly 80-byte rows, which is about 14 times the file size. A run of two files of 2 million narrow records needs about 2.4 GiB. Your numbers will differ with the number and width of columns and the Python version.
+- `--max-bytes` limits file size, not record count. Its default is 256 MiB per file, and a file of that size made of very short rows holds tens of millions of records, which would need tens of gigabytes. Size the limit from the number of records you expect, at about 1 KiB of memory per record and per input, and lower it on machines with little memory.
 - JSON input must be an array of objects, or an object with a `value` or `records` array.

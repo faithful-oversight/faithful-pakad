@@ -676,3 +676,18 @@ def test_a_paged_graph_export_is_reported_not_accepted_as_complete(
     assert kinds == ["possible-truncation"]
     assert "@odata.nextLink is present" in report["findings"][0]["details"]["signal"]
     assert "No findings" not in capsys.readouterr().out
+
+
+def test_a_no_break_space_in_a_key_is_visible_in_the_report(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path
+) -> None:
+    """PAKAD-C05: two keys that differ only by a look-alike space must not print the same."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA 1\n")
+    col = write("c.csv", "uid\nA 1\n")
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(tmp_path)]
+    assert main([*args, "-f", "md,csv,html"]) == ExitCode.FINDINGS
+    for name in ("pakad-report.md", "pakad-findings.csv", "pakad-report.html"):
+        text = (tmp_path / name).read_text(encoding="utf-8")
+        assert " " not in text, name
+        assert "A\\u00a01" in text.replace("\\\\", "\\"), name
