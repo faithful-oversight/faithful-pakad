@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import runpy
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -541,3 +543,99 @@ def test_internal_errors_print_only_the_type_and_a_short_message(
     assert "..." in err
     assert "\x1b" not in err
     assert len(err) < 600
+
+
+# Output that cannot be printed never changes the result -------------------------------
+
+
+class ClosedPipe:
+    """A standard output whose reader has gone away."""
+
+    encoding = "utf-8"
+
+    def write(self, text: str) -> int:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self) -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+def test_a_closed_pipe_keeps_the_real_exit_code_and_complete_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PAKAD-C01: ``pakad reconcile ... | head`` is not an internal error."""
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    code = main(example_args(tmp_path))
+    replaced = sys.stdout
+    assert isinstance(replaced, io.TextIOWrapper), "output must go to the null device"
+    replaced.close()
+    assert code == ExitCode.FINDINGS
+    assert_manifest_matches(tmp_path)
+    assert (tmp_path / "pakad-report.html").is_file()
+
+
+def test_a_closed_pipe_while_printing_a_resource_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    code = main(["example-profile"])
+    replaced = sys.stdout
+    assert isinstance(replaced, io.TextIOWrapper)
+    replaced.close()
+    assert code == ExitCode.OK
+
+
+def test_a_closed_pipe_while_printing_help_or_a_version_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    assert main(["--version"]) == ExitCode.OK
+    assert main([]) == ExitCode.USAGE
+
+
+def run_pakad(
+    args: list[str], env: dict[str, str], tmp: Path, *, close_stdout: bool = False
+) -> subprocess.CompletedProcess[bytes]:
+    full_env = {k: v for k, v in os.environ.items() if k not in {"PYTHONIOENCODING", "PYTHONUTF8"}}
+    full_env.update(env)
+    command = [sys.executable, "-m", "faithful_pakad", *args]
+    if not close_stdout:
+        return subprocess.run(  # noqa: S603 - fixed arguments, run from the test suite
+            command, env=full_env, capture_output=True, check=False, cwd=tmp
+        )
+    process = subprocess.Popen(  # noqa: S603 - fixed arguments, run from the test suite
+        command, env=full_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmp
+    )
+    assert process.stdout is not None
+    process.stdout.close()
+    _, stderr = process.communicate()
+    return subprocess.CompletedProcess(command, process.returncode, b"", stderr)
+
+
+def test_ascii_only_output_with_a_non_ascii_path_keeps_the_exit_code(tmp_path: Path) -> None:
+    """PAKAD-C01: output that cannot encode a path character is not an internal error."""
+    out = tmp_path / "out-ü"
+    result = run_pakad(example_args(out), {"PYTHONIOENCODING": "ascii"}, tmp_path)
+    assert result.returncode == ExitCode.FINDINGS, result.stderr
+    assert b"internal error" not in result.stderr
+    assert b"out-\\xfc" in result.stdout
+    assert_manifest_matches(out)
+
+
+def test_ascii_only_error_message_with_a_non_ascii_path_keeps_the_exit_code(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "gone-ü.csv"
+    args = example_args(tmp_path / "o")
+    args[args.index("-e") + 1] = str(missing)
+    result = run_pakad(args, {"PYTHONIOENCODING": "ascii"}, tmp_path)
+    assert result.returncode == ExitCode.INPUT_ERROR, result.stderr
+    assert b"internal error" not in result.stderr
+
+
+def test_a_closed_pipe_in_a_real_process_keeps_the_exit_code(tmp_path: Path) -> None:
+    result = run_pakad(example_args(tmp_path), {}, tmp_path, close_stdout=True)
+    assert result.returncode == ExitCode.FINDINGS, result.stderr
+    assert b"Traceback" not in result.stderr
+    assert b"internal error" not in result.stderr
+    assert_manifest_matches(tmp_path)

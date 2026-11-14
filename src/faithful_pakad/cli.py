@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shlex
 import subprocess
@@ -172,17 +173,70 @@ def _run(args: argparse.Namespace) -> int:
     )
 
     written = write_files(args.out_dir, render_all(report, args.format), force=args.force)
-    print(terminal_summary(report))  # noqa: T201
-    print("\nReports:")  # noqa: T201
+
+    # The result is decided before anything is printed, so a failure to print can
+    # never change it.
+    if args.fail_on == "never":
+        code = ExitCode.OK
+    else:
+        errors = sum(1 for f in result.findings if f.severity is Severity.ERROR)
+        failing = errors if args.fail_on == "error" else len(result.findings)
+        code = ExitCode.FINDINGS if failing else ExitCode.OK
+
+    lines = [terminal_summary(report), "", "Reports:"]
     for path in written:
         hint = "  <- open this in a browser" if path.suffix == ".html" else ""
-        print(f"  {terminal(str(path))}{hint}")  # noqa: T201
+        lines.append(f"  {terminal(str(path))}{hint}")
+    _out("\n".join(lines))
+    return code
 
-    if args.fail_on == "never":
-        return ExitCode.OK
-    errors = sum(1 for f in result.findings if f.severity is Severity.ERROR)
-    failing = errors if args.fail_on == "error" else len(result.findings)
-    return ExitCode.FINDINGS if failing else ExitCode.OK
+
+def _quiet_stdout() -> None:
+    """Point standard output at the null device after the reader has gone away.
+
+    This is the pattern the Python documentation gives for a closed pipe: without
+    it, flushing the broken stream while the interpreter shuts down raises again.
+    """
+    with contextlib.suppress(Exception):
+        sys.stdout.flush()
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        with contextlib.suppress(Exception):
+            os.dup2(devnull, sys.stdout.fileno())
+    finally:
+        os.close(devnull)
+    # Kept open on purpose: it replaces standard output for the rest of the process.
+    sys.stdout = Path(os.devnull).open("w", encoding="utf-8")  # noqa: SIM115
+
+
+def _out(text: str, *, end: str = "\n") -> None:
+    """Print to standard output. A closed pipe stops the printing and nothing else."""
+    try:
+        sys.stdout.write(text + end)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _quiet_stdout()
+
+
+def _err(text: str) -> None:
+    """Print to standard error. A stream that cannot be written to is ignored."""
+    with contextlib.suppress(OSError, ValueError):
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
+
+
+def _make_streams_safe() -> None:
+    r"""Make printing unable to fail on a character the stream cannot encode.
+
+    Redirected output on Windows, ``LANG=C`` and ``PYTHONIOENCODING=ascii`` can all
+    leave a stream that rejects characters such as an accented letter in a path.
+    Such characters print as ``\xeb`` or ``\u00eb`` instead of ending the run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(Exception):
+                reconfigure(errors="backslashreplace")
 
 
 def _resource(name: str) -> str:
@@ -208,7 +262,7 @@ def _example(directory: Path, *, force: bool) -> int:
         "--as-of",
         "2026-11-07T12:00:00Z",
     )
-    print(terminal(f"Wrote a synthetic example to {directory}. Try it:\n\n  {command}"))  # noqa: T201
+    _out(terminal(f"Wrote a synthetic example to {directory}. Try it:\n\n  {command}"))
     return ExitCode.OK
 
 
@@ -221,13 +275,13 @@ def _command_line(*parts: str) -> str:
 
 def _check_profile(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
-    print(terminal(f"{args.profile}: valid profile {profile.name!r}"))  # noqa: T201
+    _out(terminal(f"{args.profile}: valid profile {profile.name!r}"))
     return ExitCode.OK
 
 
 def _print_resource(name: str) -> Callable[[argparse.Namespace], int]:
     def handler(_: argparse.Namespace) -> int:
-        sys.stdout.write(_resource(name))
+        _out(_resource(name), end="")
         return ExitCode.OK
 
     return handler
@@ -251,26 +305,33 @@ def _short(message: str) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return an exit code."""
+    _make_streams_safe()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else int(ExitCode.USAGE)
+    except BrokenPipeError:
+        # --help or --version printed into a pipe that was already closed.
+        _quiet_stdout()
+        return int(ExitCode.OK)
     handler = COMMANDS.get(args.command)
     if handler is None:
-        parser.print_help()
+        try:
+            parser.print_help()
+        except BrokenPipeError:
+            _quiet_stdout()
         return int(ExitCode.USAGE)
     try:
         return int(handler(args))
     except PakadError as exc:
-        print(f"pakad: error: {terminal(str(exc))}", file=sys.stderr)  # noqa: T201
+        _err(f"pakad: error: {terminal(str(exc))}")
         return int(ExitCode.INPUT_ERROR)
     except Exception as exc:  # noqa: BLE001 - last resort, so a crash never looks like findings
-        print(  # noqa: T201
+        _err(
             f"pakad: internal error: {type(exc).__name__}: {_short(str(exc))}\n"
             "This is a bug. Please report it: "
-            "https://github.com/faithful-oversight/faithful-pakad/issues",
-            file=sys.stderr,
+            "https://github.com/faithful-oversight/faithful-pakad/issues"
         )
         return int(ExitCode.INTERNAL_ERROR)
