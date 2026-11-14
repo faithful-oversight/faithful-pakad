@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "faithful-pakad"
-version = "0.1.1"
+version = "0.1.2"
 description = "Evidence Population Reconciler: Reconciles an expected population against a collected evidence export and reports exactly what is missing, extra, ambiguous, or stale."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Faithful Oversight, LLC" }]
-keywords = ["audit", "evidence", "reconciliation", "identity", "compliance"]
+keywords = ["audit", "audit-evidence", "evidence", "reconciliation", "identity"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",

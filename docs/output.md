@@ -49,7 +49,7 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 ```json
 {
   "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.1"},
+  "tool": {"name": "pakad", "version": "0.1.2"},
   "summary": {"expected_records": 9, "collected_records": 12, "matched_keys": 8,
               "errors": 7, "warnings": 2, "findings_by_kind": {"missing": 1, "...": 0}},
   "findings": [
@@ -84,7 +84,7 @@ Every run also writes `pakad-manifest.json`, after every other file. It records 
 {
   "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json",
   "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.1"},
+  "tool": {"name": "pakad", "version": "0.1.2"},
   "run_id": "4f3c1e0a9b7d4c2e8f6a5b3c1d0e9f8a",
   "generated_at": "2026-11-07T12:00:00+00:00",
   "files": [
@@ -119,7 +119,7 @@ People-facing reports join composite keys with ` | `. A key value that itself co
 
 ## Large reports
 
-The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding. The CSV, HTML, and Markdown reports list at most 20 source references for one finding, followed by "and N more", so one key repeated thousands of times cannot fill a spreadsheet cell past its limit of 32,767 characters. The JSON report always lists every reference.
+The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding. The CSV, HTML, and Markdown reports list at most 20 source references for one finding, followed by a count of the rest, so one key repeated thousands of times cannot fill a spreadsheet cell past its limit of 32,767 characters. The JSON report always lists every reference.
 
 ## CSV findings
 

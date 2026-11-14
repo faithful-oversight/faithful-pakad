@@ -6,20 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-14
+
 ### Fixed
 
-- The report now states a configured `max_age_hours` exactly (for example `1.23456789`, not `1.23457`), in both the rules applied and the stale-record details.
-- A profile's `equivalents` no longer turns identical values into a `field-mismatch`. A collected value that equals the expected value always matches; an equivalent only adds another accepted form.
-- A key repeated thousands of times no longer puts every source reference into one CSV cell, which went past a spreadsheet's 32,767-character limit. The CSV, HTML, and Markdown reports list the first 20 references and say how many more there are; the JSON report keeps all of them.
-- The note about findings left out of the HTML and Markdown reports now reads correctly for one finding ("1 more finding of this kind is in ...").
+- A profile with no `[[compare]]` fields now lists "field comparison" under Not verified, so a presence-only run is no longer reported as a clean pass.
+- A JSON export that says it is one page of a larger result (a non-empty `@odata.nextLink`, or an `@odata.count` or `count` that differs from the number of records) is now reported as a `possible-truncation` warning instead of being accepted as complete.
+- When the summary cannot be printed (a closed pipe such as `pakad ... | head`, or output that cannot encode a character in a path), the run now keeps its real exit code instead of ending with exit 4. The reports were already written.
+- Error messages now name the whole path you gave, not only the file name. Reports still record only the file name.
 - A large `--max-bytes` value no longer makes a tiny file fail with exit 4 (`MemoryError` or `OverflowError`). Files are now read in blocks.
 - An output directory that exists but cannot be searched (for example mode 0600) is now an input error (exit 3) with a clear message, not an internal error (exit 4).
 - A deeply nested profile is now a profile error (exit 3, "profile is nested too deeply") instead of an internal error (exit 4).
 - An empty JSON export (`[]` or `{"value": []}`) is now reported as an empty input, like a header-only CSV, instead of failing with "is missing 1 column".
-- When the summary cannot be printed (a closed pipe such as `pakad ... | head`, or output that cannot encode a character in a path), the run now keeps its real exit code instead of ending with exit 4. The reports were already written.
-- Error messages now name the whole path you gave, not only the file name. Reports still record only the file name.
-- A JSON export that says it is one page of a larger result (a non-empty `@odata.nextLink`, or an `@odata.count` or `count` that differs from the number of records) is now reported as a `possible-truncation` warning instead of being accepted as complete.
-- A profile with no `[[compare]]` fields now lists "field comparison" under Not verified, so a presence-only run is no longer reported as a clean pass.
+- A key repeated thousands of times no longer puts every source reference into one CSV cell, which went past a spreadsheet's 32,767-character limit. The CSV, HTML, and Markdown reports list the first 20 references and say how many more there are; the JSON report keeps all of them.
+- A profile's `equivalents` no longer turns identical values into a `field-mismatch`. A collected value that equals the expected value always matches; an equivalent only adds another accepted form.
+- The report now states a configured `max_age_hours` exactly (for example `1.23456789`, not `1.23457`), in both the rules applied and the stale-record details.
+- The note about findings left out of the HTML and Markdown reports now reads correctly for one finding ("1 more finding of this kind is in ...").
+- A plain negative number such as `-1` is no longer given a leading apostrophe in the CSV report, so a tool reading the file gets the number. Anything else that starts with a minus sign is still neutralized.
 - The source archive's own tests now run in the build check: it unpacks the archive outside the checkout and runs the whole suite there, instead of only collecting the tests.
 - Editing a pull request title now reruns the title check, so a corrected title clears the required check.
 - The dependency audit writes its export to a private temporary directory, so a planted link or a second run at the same time cannot interfere.
@@ -32,6 +35,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - The profile documentation now says that normalization steps run in the order listed and that `nfkc` should come first, because a later `casefold` or `strip` cleans up what NFKC creates. The step table and the example profile list `nfkc` first.
 - The limitations page now states measured memory use: about 650 to 1,100 bytes per record, or 14 to 80 times the file size depending on row width, instead of "several times the file size". It also says that `--max-bytes` limits bytes, not records.
+- A presence-only profile (no `[[compare]]` fields) now gets the headline "No findings in the supplied inputs, but 1 check did not run" where it used to get a plain pass. The example profile compares fields and is unchanged.
+- The README now leads with an install route that works before the first PyPI release (`pipx install git+https://github.com/faithful-oversight/faithful-pakad`), a status line, a short comparison with other approaches, a link to the documentation folder, and a real excerpt of the example report. The quickstart shows the current version.
+- The package keywords no longer include "compliance", and the README and NOTICE say that pakad is not affiliated with or endorsed by Microsoft.
+
+### Security
+
+- Characters that look like a space but are not the ASCII space (no-break space, the en and em spaces, the ideographic space, and the blank braille pattern) now print as visible escapes in every report format and in the terminal, so two keys that differ only by one of them no longer look identical, and such a character cannot sit in front of a formula in the CSV report.
 
 ## [0.1.1] - 2026-11-11
 
