@@ -5,6 +5,8 @@
 [![CI](https://github.com/faithful-oversight/faithful-pakad/actions/workflows/ci.yml/badge.svg)](https://github.com/faithful-oversight/faithful-pakad/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+**Status:** version 0.1.2, beta. The tests use synthetic data only, and run in continuous integration on Linux (Python 3.11 to 3.14), Windows, and macOS. No claim is made that it has been validated against real exports from production systems, so check its first reports against your own data. See [Limitations](docs/limitations.md). Documentation is in the [docs folder](docs/index.md).
+
 ![A pakad HTML report showing summary cards and findings grouped by kind](docs/images/report-example.png)
 
 ## Why pakad
@@ -20,6 +22,35 @@ pakad does the comparison the same way every time and writes a report an assesso
 - **What it could not verify**, stated in every report rather than left out.
 - **Evidence details**, including SHA-256 hashes of every input and the profile, the rules applied, the reference time, and the tool version.
 
+## How it differs from existing tools
+
+Spreadsheet formulas, ad-hoc scripts, and generic data-comparison tools can all compare two lists, but they can decide quietly: convert types, hide duplicates, and say nothing about checks that did not run. General-purpose governance, risk, and compliance products track controls and evidence, and are a different kind of tool. pakad does one narrow job. It matches two exports on keys you choose, by exact text and the normalization steps you list, and it treats duplicates, ambiguity, and unchecked checks as findings. Every report names the files by SHA-256 hash and lists the rules applied. It runs offline and never connects to a system.
+
+## A look at the output
+
+Real output from the synthetic example, which exits with code `1` because it has findings:
+
+```text
+pakad 0.1.2: HR roster vs directory export
+  expected         9 records  expected.csv
+  collected       12 records  collected.csv
+  matched          8 keys
+
+7 errors and 2 warnings need review.
+  Missing from the collected export            1  (missing)
+  Not in the expected population               1  (unexpected)
+  Duplicate keys                               1  (duplicate-key)
+  Keys that collide after normalization        1  (ambiguous-key)
+  Records without a usable key                 1  (blank-key)
+  Field values that disagree                   1  (field-mismatch)
+  Expected sources with no records             1  (missing-source)
+  Stale records                                1  (stale-record)
+  Unusable capture times                       1  (invalid-timestamp)
+1 check not verified; see the report.
+```
+
+The full [sample reports](examples/roster-vs-directory/sample-report/) are committed, in all four formats.
+
 ## About the name
 
 *pakad* (pah-KAHD). Hebrew *paqad*: to number, to muster, to account for, and to notice who is missing.
@@ -29,14 +60,12 @@ pakad does the comparison the same way every time and writes a report an assesso
 pakad needs Python 3.11 or newer and has no runtime dependencies.
 
 ```shell
-pipx install faithful-pakad
+pipx install git+https://github.com/faithful-oversight/faithful-pakad
 ```
 
-Until the first release reaches PyPI, install from a release's wheel file or from source:
+For a fixed version, add a tag, for example `...faithful-pakad@v0.1.2`. If `pakad` is not found afterward, run `pipx ensurepath` once and open a new terminal.
 
-```shell
-pipx install ./faithful_pakad-0.1.1-py3-none-any.whl
-```
+PyPI publishing is being set up. Until a PyPI release exists, install from GitHub as shown. To work from a clone, run `pipx install .` in the repository.
 
 ## Try it in one minute
 
@@ -89,6 +118,10 @@ Exit codes make pakad easy to use in pipelines: `0` no findings, `1` findings, `
 ## Security
 
 Please do not report security problems in public issues. See [SECURITY.md](SECURITY.md).
+
+## Not affiliated
+
+pakad is not affiliated with, endorsed by, or sponsored by Microsoft. Product names in the documentation, such as Microsoft Graph and PowerShell, appear only to describe the file formats pakad can read.
 
 ## Contributing
 

@@ -2,6 +2,10 @@
 
 pakad is deliberately narrow. This page lists what it cannot do, so nobody relies on it for more than it provides.
 
+## Status and testing
+
+pakad is beta software, version 0.1.2. Every test uses synthetic data. Continuous integration runs the test suite on Linux with Python 3.11 to 3.14, on Windows with Python 3.13, and on macOS with Python 3.13. No claim is made that pakad has been validated against real exports from production systems. Behavior of a redirected Windows console is tested by simulating a stream that cannot encode a character, not on a real console. Check the first reports against data you can verify by hand.
+
 ## Out of scope
 
 The tool will not:

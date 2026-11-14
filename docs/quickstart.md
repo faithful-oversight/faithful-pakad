@@ -5,15 +5,13 @@ This walk-through takes about five minutes. It uses synthetic data, so nothing h
 ## 1. Install
 
 ```shell
-pipx install faithful-pakad
+pipx install git+https://github.com/faithful-oversight/faithful-pakad
 pakad --version
 ```
 
-Until the first release reaches PyPI, install the wheel attached to a [GitHub release](https://github.com/faithful-oversight/faithful-pakad/releases) instead:
+For a fixed version, add a tag, for example `...faithful-pakad@v0.1.2`. If `pakad` is not found, run `pipx ensurepath` once and open a new terminal.
 
-```shell
-pipx install ./faithful_pakad-0.1.0-py3-none-any.whl
-```
+PyPI publishing is being set up. Until a PyPI release exists, install from GitHub as shown.
 
 pakad runs on Windows, macOS, and Linux with Python 3.11 or newer.
 
@@ -45,13 +43,25 @@ On Windows PowerShell, put the command on one line or end each continued line wi
 The terminal shows a summary:
 
 ```text
-pakad 0.1.0: HR roster vs directory export
+pakad 0.1.2: HR roster vs directory export
   expected         9 records  expected.csv
   collected       12 records  collected.csv
   matched          8 keys
 
 7 errors and 2 warnings need review.
   Missing from the collected export            1  (missing)
+  Not in the expected population               1  (unexpected)
+  Duplicate keys                               1  (duplicate-key)
+  Keys that collide after normalization        1  (ambiguous-key)
+  Records without a usable key                 1  (blank-key)
+  Field values that disagree                   1  (field-mismatch)
+  Expected sources with no records             1  (missing-source)
+  Stale records                                1  (stale-record)
+  Unusable capture times                       1  (invalid-timestamp)
+1 check not verified; see the report.
+
+Reports:
+  pakad-demo/report/pakad-report.html  <- open this in a browser
   ...
 ```
 
