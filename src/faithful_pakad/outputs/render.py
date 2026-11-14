@@ -37,6 +37,13 @@ MAX_SHOWN_PER_KIND = 500
 The JSON and CSV outputs always hold every finding.
 """
 
+MAX_REFS_SHOWN = 20
+"""CSV, HTML, and Markdown list at most this many source references for one finding.
+
+A key repeated thousands of times would otherwise put every reference in one cell,
+past the 32,767-character limit of a spreadsheet cell. The JSON report keeps them all.
+"""
+
 LIMIT_NOTE = (
     "This report covers only what the input files contain. It cannot detect records "
     "a source system never exported, and a clean result is not proof that the "
@@ -62,7 +69,10 @@ def _key_text(key: list[str] | None) -> str:
 
 
 def _refs_text(refs: list[dict[str, Any]]) -> str:
-    return "; ".join(format_ref(r) for r in refs) or "—"
+    shown = "; ".join(format_ref(r) for r in refs[:MAX_REFS_SHOWN])
+    if len(refs) > MAX_REFS_SHOWN:
+        shown += f"; and {len(refs) - MAX_REFS_SHOWN:,} more (all are in pakad-report.json)"
+    return shown or "—"
 
 
 def _details_text(details: dict[str, str]) -> str:
@@ -103,10 +113,10 @@ def _shown(findings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
 
 
 def _hidden_note(hidden: int) -> str:
-    return (
-        f"{count(hidden, 'more finding')} of this kind are in pakad-report.json "
-        "and pakad-findings.csv."
-    )
+    where = "in pakad-report.json and pakad-findings.csv"
+    if hidden == 1:
+        return f"1 more finding of this kind is {where}."
+    return f"{hidden:,} more findings of this kind are {where}."
 
 
 def _summary_rows(report: Report) -> list[tuple[str, str]]:

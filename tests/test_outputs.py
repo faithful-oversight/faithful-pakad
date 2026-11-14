@@ -23,6 +23,7 @@ from faithful_pakad.outputs.guidance import GUIDANCE
 from faithful_pakad.outputs.render import (
     CSV_COLUMNS,
     RENDERERS,
+    _hidden_note,
     render_all,
     render_csv,
     render_html,
@@ -229,10 +230,45 @@ def test_large_groups_are_capped_in_people_facing_reports(monkeypatch: pytest.Mo
     findings = (Finding(Kind.MISSING, "a", ("1",)), Finding(Kind.MISSING, "b", ("2",)))
     report = make_report(findings)
     for text in (render_html(report), render_markdown(report)):
-        assert "1 more finding of this kind are in pakad-report.json" in text
+        assert "1 more finding of this kind is in pakad-report.json and pakad-findings.csv." in text
         assert "F00002" not in text
     assert "F00002" in render_csv(report)
     assert len(json.loads(render_json(report))["findings"]) == 2
+
+
+def test_the_hidden_findings_note_has_the_right_number() -> None:
+    assert (
+        _hidden_note(1)
+        == "1 more finding of this kind is in pakad-report.json and pakad-findings.csv."
+    )
+    assert (
+        _hidden_note(2)
+        == "2 more findings of this kind are in pakad-report.json and pakad-findings.csv."
+    )
+    assert _hidden_note(1500).startswith("1,500 more findings of this kind are in")
+
+
+def test_a_finding_with_thousands_of_references_stays_within_a_spreadsheet_cell() -> None:
+    """PAKAD-C10: one CSV cell must not pass 32,767 characters; JSON keeps every reference."""
+    refs = tuple(SourceRef(Side.COLLECTED, "c.csv", row) for row in range(2, 3002))
+    finding = Finding(Kind.DUPLICATE_KEY, "dup", ("A1",), refs)
+    report = make_report((finding,))
+    cells = [c for row in csv.reader(io.StringIO(render_csv(report), newline="")) for c in row]
+    assert max(len(c) for c in cells) < 32_767
+    source = next(c for c in cells if c.startswith("collected: c.csv line 2"))
+    assert source.count("collected: c.csv") == 20
+    assert "and 2,980 more (all are in pakad-report.json)" in source
+    for text in (render_html(report), render_markdown(report)):
+        assert "and 2,980 more" in text
+        assert "line 3001" not in text
+    assert len(json.loads(render_json(report))["findings"][0]["refs"]) == 3000
+
+
+def test_a_few_references_are_all_listed() -> None:
+    refs = tuple(SourceRef(Side.COLLECTED, "c.csv", row) for row in range(2, 22))
+    text = render_csv(make_report((Finding(Kind.DUPLICATE_KEY, "dup", ("A1",), refs),)))
+    assert "line 21" in text
+    assert "more (all are" not in text
 
 
 INVISIBLE = "a\x1b[31mred\u202etxt.exe\x00"

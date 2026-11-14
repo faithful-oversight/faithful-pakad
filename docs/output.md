@@ -119,7 +119,7 @@ People-facing reports join composite keys with ` | `. A key value that itself co
 
 ## Large reports
 
-The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding.
+The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding. The CSV, HTML, and Markdown reports list at most 20 source references for one finding, followed by "and N more", so one key repeated thousands of times cannot fill a spreadsheet cell past its limit of 32,767 characters. The JSON report always lists every reference.
 
 ## CSV findings
 
