@@ -146,7 +146,9 @@ def _deps(
         text=True,
     )
     lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-    paths = [m.group(1) for line in lines if (m := re.search(r"--requirement (\S+)", line))]
+    paths = [
+        m.group(1) for line in lines if (m := re.search(r"(\S+requirements-audit\.txt)", line))
+    ]
     return result.returncode, paths
 
 

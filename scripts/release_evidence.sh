@@ -2,8 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Faithful Oversight, LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Write the release evidence next to the built packages: a CycloneDX software
-# bill of materials (sbom.cdx.json) and SHA256SUMS for every file.
+# Write the release evidence next to the built packages: CycloneDX software bills
+# of materials and SHA256SUMS for every file.
+#
+#   sbom-base.cdx.json        what `pip install faithful-pakad` installs
+#   sbom-all-extras.cdx.json  everything every optional extra can add; written only
+#                             when pyproject.toml defines extras
+#
+# Each SBOM states its scope in metadata.properties.
 #
 # The output is reproducible. The SBOM timestamp is the commit time, and it has
 # no random serial number, so the same commit always gives the same bytes. A
@@ -27,10 +33,43 @@ export SOURCE_DATE_EPOCH
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-rm -f -- "$dist/sbom.cdx.json" "$dist/SHA256SUMS"
-uv export --quiet --locked --no-dev --no-emit-project --no-hashes \
-  --format requirements-txt --output-file "$work/runtime-requirements.txt"
-uv run --no-sync cyclonedx-py requirements "$work/runtime-requirements.txt" \
-  --pyproject pyproject.toml --mc-type application --output-reproducible \
-  --output-format JSON --output-file "$dist/sbom.cdx.json"
+rm -f -- "$dist"/sbom*.cdx.json "$dist/SHA256SUMS"
+
+# sbom <name> <scope> [uv export options...]
+sbom() {
+  local name="$1" scope="$2"
+  shift 2
+  uv export --quiet --locked --no-dev --no-emit-project --no-hashes "$@" \
+    --format requirements-txt --output-file "$work/$name.txt"
+  uv run --no-sync cyclonedx-py requirements "$work/$name.txt" \
+    --pyproject pyproject.toml --mc-type application --output-reproducible \
+    --output-format JSON --output-file "$work/$name.cdx.json"
+  uv run --no-sync python - "$work/$name.cdx.json" "$dist/$name.cdx.json" "$scope" <<'PY'
+import json
+import sys
+
+source, target, scope = sys.argv[1:]
+with open(source, encoding="utf-8") as handle:
+    document = json.load(handle)
+document["metadata"].setdefault("properties", []).append(
+    {"name": "faithful-pakad:sbom-scope", "value": scope}
+)
+with open(target, "w", encoding="utf-8", newline="\n") as handle:
+    json.dump(document, handle, indent=2, ensure_ascii=False)
+    handle.write("\n")
+PY
+}
+
+extras="$(uv run --no-sync python - <<'PY'
+import tomllib
+
+with open("pyproject.toml", "rb") as handle:
+    print(",".join(sorted(tomllib.load(handle)["project"].get("optional-dependencies", {}))))
+PY
+)"
+
+sbom sbom-base "base install: pip install faithful-pakad"
+if [[ -n "$extras" ]]; then
+  sbom sbom-all-extras "every optional extra: pip install faithful-pakad[$extras]" --all-extras
+fi
 (cd "$dist" && sha256sum -- * > SHA256SUMS)

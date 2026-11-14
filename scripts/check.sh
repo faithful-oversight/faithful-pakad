@@ -48,8 +48,13 @@ stage_deps() {
   # the same time would overwrite each other's input.
   local work rc=0
   work="$(mktemp -d)"
-  uv export --color never --locked --all-groups --no-emit-project --format requirements-txt \
-    > "$work/requirements-audit.txt" || rc=$?
+  # --all-extras puts every optional extra in the audit; without it their pins would never
+  # be checked. The inventory check fails if any package an extra names is absent.
+  uv export --color never --locked --all-groups --all-extras --no-emit-project \
+    --format requirements-txt > "$work/requirements-audit.txt" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    run python scripts/check_audit_inventory.py "$work/requirements-audit.txt" || rc=$?
+  fi
   if [[ $rc -eq 0 ]]; then
     run pip-audit --strict --requirement "$work/requirements-audit.txt" --disable-pip || rc=$?
   fi
