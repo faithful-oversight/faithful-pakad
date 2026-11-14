@@ -365,3 +365,20 @@ def test_a_header_only_table_still_needs_the_profile_columns() -> None:
     col = table(Side.COLLECTED, [], columns=("other",))
     with pytest.raises(InputError, match="is missing 1 column: uid"):
         reconcile(profile, exp, col, as_of=AS_OF)
+
+
+def test_an_equivalent_adds_an_accepted_form_and_never_hides_an_identical_value() -> None:
+    """PAKAD-C11: the collected value is not rewritten before the comparison."""
+    text = NO_PAGING + (
+        "[[compare]]\nexpected = 'enabled'\ncollected = 'enabled'\n"
+        "equivalents = { 'true' = 'active' }\n"
+    )
+    same = run(text, [{"id": "1", "enabled": "true"}], [{"uid": "1", "enabled": "true"}])
+    assert same.findings == ()
+    mapped = run(text, [{"id": "1", "enabled": "active"}], [{"uid": "1", "enabled": "true"}])
+    assert mapped.findings == ()
+    other = run(text, [{"id": "1", "enabled": "inactive"}], [{"uid": "1", "enabled": "true"}])
+    assert kinds(other) == [Kind.FIELD_MISMATCH]
+    # The mapping runs from the collected value to the expected value only.
+    reverse = run(text, [{"id": "1", "enabled": "true"}], [{"uid": "1", "enabled": "active"}])
+    assert kinds(reverse) == [Kind.FIELD_MISMATCH]

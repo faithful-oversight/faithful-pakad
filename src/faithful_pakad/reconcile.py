@@ -251,7 +251,9 @@ def _compare_one(spec: CompareSpec, key: Key, exp: Record, col: Record) -> Findi
     if exp_raw is not None and col_raw is not None:
         exp_value = normalize(exp_raw, spec.normalize)
         col_value = normalize(col_raw, spec.normalize)
-        if spec.equivalents.get(col_value, col_value) == exp_value:
+        # An equivalent is an extra accepted form, never a replacement: identical
+        # values always match, even when the value is also listed as an equivalent.
+        if col_value == exp_value or spec.equivalents.get(col_value) == exp_value:
             return None
     if exp_raw is None and col_raw is None:
         message = f"{spec.expected} (expected) and {spec.collected} (collected) are both absent."

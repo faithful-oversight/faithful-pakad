@@ -78,7 +78,7 @@ Optional. Repeat the table once for each field to compare on matched records.
 | `expected` | required | Column in the expected input. |
 | `collected` | required | Column in the collected input. |
 | `normalize` | `["strip"]` | Steps applied to both values before comparing. |
-| `equivalents` | none | Table mapping a collected value to the expected value it counts as. Keys and values are normalized with the same steps, and two keys that normalize to the same text are an error. |
+| `equivalents` | none | Table mapping a collected value to the expected value it counts as. The mapping adds an accepted form and runs one way, from collected to expected: a collected value equal to the expected value always matches, and the expected value is never mapped. Keys and values are normalized with the same steps, and two keys that normalize to the same text are an error. |
 
 An absent value never equals anything, including another absent value, so missing data always shows up as a `field-mismatch`.
 
