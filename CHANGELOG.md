@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- When the summary cannot be printed (a closed pipe such as `pakad ... | head`, or output that cannot encode a character in a path), the run now keeps its real exit code instead of ending with exit 4. The reports were already written.
+- Error messages now name the whole path you gave, not only the file name. Reports still record only the file name.
 - A profile with no `[[compare]]` fields now lists "field comparison" under Not verified, so a presence-only run is no longer reported as a clean pass.
 - The source archive's own tests now run in the build check: it unpacks the archive outside the checkout and runs the whole suite there, instead of only collecting the tests.
 - Editing a pull request title now reruns the title check, so a corrected title clears the required check.

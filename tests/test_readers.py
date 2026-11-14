@@ -108,8 +108,9 @@ def test_size_limit(write: Callable[[str, str | bytes], Path]) -> None:
 
 
 def test_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(InputError, match=r"cannot read expected input absent\.csv"):
+    with pytest.raises(InputError, match=r"cannot read expected input .*absent\.csv") as caught:
         read(tmp_path / "absent.csv")
+    assert str(tmp_path) in str(caught.value)
 
 
 def test_json_values_become_text(write: Callable[[str, str | bytes], Path]) -> None:

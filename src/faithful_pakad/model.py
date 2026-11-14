@@ -103,6 +103,8 @@ class Table:
     size_bytes: int
     columns: tuple[str, ...]
     records: tuple[Record, ...]
+    path: str = ""
+    """The path as the user gave it, for error messages. Reports use ``file`` instead."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from faithful_pakad.errors import ProfileError
-from faithful_pakad.names import display_name
+from faithful_pakad.names import display_name, error_path
 from faithful_pakad.normalize import STEPS, normalize
 
 if TYPE_CHECKING:
@@ -310,15 +310,15 @@ def load_profile(path: Path) -> Profile:
     """
     try:
         if path.stat().st_size > MAX_PROFILE_BYTES:
-            msg = f"{display_name(path)}: profile is larger than {MAX_PROFILE_BYTES} bytes"
+            msg = f"{error_path(path)}: profile is larger than {MAX_PROFILE_BYTES} bytes"
             raise ProfileError(msg)
         raw = path.read_bytes()
     except OSError as exc:
-        msg = f"cannot read profile {display_name(path)}: {exc.strerror}"
+        msg = f"cannot read profile {error_path(path)}: {exc.strerror}"
         raise ProfileError(msg) from exc
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        msg = f"{display_name(path)}: profile must be UTF-8 text"
+        msg = f"{error_path(path)}: profile must be UTF-8 text"
         raise ProfileError(msg) from exc
     return parse_profile(text, file=display_name(path), sha256=hashlib.sha256(raw).hexdigest())

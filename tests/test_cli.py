@@ -191,7 +191,9 @@ def test_input_errors_exit_3(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     args = example_args(tmp_path)
     args[args.index("-e") + 1] = str(tmp_path / "absent.csv")
     assert main(args) == ExitCode.INPUT_ERROR
-    assert capsys.readouterr().err.startswith("pakad: error: cannot read expected input absent.csv")
+    assert capsys.readouterr().err.startswith(
+        f"pakad: error: cannot read expected input {tmp_path / 'absent.csv'}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -481,7 +483,7 @@ def test_error_messages_show_names_that_are_not_utf8_as_escapes(
 ) -> None:
     missing = tmp_path / os.fsdecode(b"missing\xff.csv")
     assert main(["check-profile", str(missing)]) == ExitCode.INPUT_ERROR
-    assert "cannot read profile missing\\xff.csv" in capsys.readouterr().err
+    assert f"cannot read profile {tmp_path}/missing\\xff.csv" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -509,7 +511,7 @@ def test_csv_text_with_an_unpaired_surrogate_is_an_input_error(
     args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col)]
     assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
     err = capsys.readouterr().err
-    assert err.startswith("pakad: error: bad.csv: line 2, column 1 contains an unpaired surrogate")
+    assert err.startswith(f"pakad: error: {bad}: line 2, column 1 contains an unpaired surrogate")
     assert "Traceback" not in err
     assert not (tmp_path / "o").exists()
 
@@ -525,7 +527,7 @@ def test_csv_header_with_an_unpaired_surrogate_is_an_input_error(
     args = ["reconcile", "-p", str(profile), "-e", str(bad), "-c", str(good)]
     assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
     err = capsys.readouterr().err
-    assert "bad.csv: line 1, column 2 contains an unpaired surrogate" in err
+    assert f"{bad}: line 1, column 2 contains an unpaired surrogate" in err
     assert "Traceback" not in err
 
 
@@ -639,3 +641,18 @@ def test_a_closed_pipe_in_a_real_process_keeps_the_exit_code(tmp_path: Path) -> 
     assert b"Traceback" not in result.stderr
     assert b"internal error" not in result.stderr
     assert_manifest_matches(tmp_path)
+
+
+def test_error_messages_name_the_whole_path_but_reports_keep_only_the_file_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAKAD-UX-06: a mistyped directory must be visible in the message."""
+    typo = tmp_path / "no-such-dir" / "profile.toml"
+    assert main(["check-profile", str(typo)]) == ExitCode.INPUT_ERROR
+    assert f"cannot read profile {typo}:" in capsys.readouterr().err
+
+    out = tmp_path / "out"
+    assert main(example_args(out)) == ExitCode.FINDINGS
+    report = (out / "pakad-report.json").read_text(encoding="utf-8")
+    assert str(EXAMPLE_DIR) not in report
+    assert str(tmp_path) not in report

@@ -103,7 +103,7 @@ def _require_columns(table: Table, needed: Iterable[str]) -> None:
     if missing:
         available = ", ".join(table.columns) or "none"
         msg = (
-            f"{table.file} ({table.side} input) is missing "
+            f"{table.path or table.file} ({table.side} input) is missing "
             f"{count(len(missing), 'column')}: {', '.join(missing)}; "
             f"available: {available}"
         )
