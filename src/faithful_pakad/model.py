@@ -105,6 +105,8 @@ class Table:
     records: tuple[Record, ...]
     path: str = ""
     """The path as the user gave it, for error messages. Reports use ``file`` instead."""
+    paging_signals: tuple[str, ...] = ()
+    """Statements in a JSON wrapper that the file is one page of a larger result."""
 
 
 @dataclass(frozen=True, slots=True)

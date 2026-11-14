@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
@@ -333,3 +334,16 @@ def test_results_are_deterministic(expected: list[str], collected: list[str]) ->
     first = run(NO_PAGING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
     again = run(NO_PAGING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
     assert first == again
+
+
+def test_a_file_that_says_it_is_one_page_is_a_finding_even_without_page_sizes() -> None:
+    """PAKAD-C02: the finding does not depend on the configured page sizes."""
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = table(Side.COLLECTED, [{"uid": "1"}])
+    col = dataclasses.replace(col, paging_signals=("@odata.nextLink is present",))
+    result = reconcile(profile, exp, col, as_of=AS_OF)
+    found = only(result, Kind.POSSIBLE_TRUNCATION)
+    assert found.details["input"] == "collected"
+    assert found.details["signal"] == "@odata.nextLink is present"
+    assert "incomplete" in found.message

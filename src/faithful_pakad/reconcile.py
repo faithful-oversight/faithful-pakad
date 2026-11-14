@@ -58,6 +58,7 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
     _require_columns(collected, _collected_columns(profile))
 
     findings: list[Finding] = [_empty(t) for t in (expected, collected) if not t.records]
+    findings.extend(_declared_paging(t) for t in (expected, collected) if t.paging_signals)
     unknowns: list[Unknown] = []
     expected_index = _index(expected, profile.expected, profile.key_normalize, findings)
     collected_index = _index(collected, profile.collected, profile.key_normalize, findings)
@@ -80,6 +81,21 @@ def _empty(table: Table) -> Finding:
         kind=Kind.EMPTY_INPUT,
         message=f"The {table.side} input has no records.",
         details={"input": table.side.value, "file": table.file},
+    )
+
+
+def _declared_paging(table: Table) -> Finding:
+    """Report a file that says it is one page of a larger result, whatever the page size."""
+    return Finding(
+        kind=Kind.POSSIBLE_TRUNCATION,
+        message=(
+            f"The {table.side} input says it is incomplete, so records may be missing from it."
+        ),
+        details={
+            "input": table.side.value,
+            "file": table.file,
+            "signal": "; ".join(table.paging_signals),
+        },
     )
 
 

@@ -80,10 +80,11 @@ GUIDANCE: dict[Kind, Guidance] = {
     ),
     Kind.POSSIBLE_TRUNCATION: Guidance(
         "Possible paging truncation",
-        "A record count is an exact multiple of a common page size. Paged exports that "
-        "stop early often produce counts like this.",
-        "Compare the count with the source system's own total. If they match, the warning "
-        "can be ignored.",
+        "A record count is an exact multiple of a common page size, or the file itself says "
+        "it is one page of a larger result, such as a Microsoft Graph page with an "
+        "@odata.nextLink. Paged exports that stop early often look like this.",
+        "Export every page and run again. For a count that only matches a page size, compare "
+        "it with the source system's own total; if they match, the warning can be ignored.",
     ),
     Kind.EMPTY_INPUT: Guidance(
         "Empty inputs",

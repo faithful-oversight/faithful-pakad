@@ -230,3 +230,62 @@ def test_csv_round_trip_preserves_values(
     writer.writerows(rows)
     result = read(write("rt.csv", buffer.getvalue()))
     assert result == [{"id": a, "value": b} for a, b in rows]
+
+
+GRAPH_PAGE = (
+    '{"@odata.context": "https://graph.example/v1.0/$metadata#users", %s, "value": [{"id": "A1"}]}'
+)
+
+
+@pytest.mark.parametrize(
+    ("extras", "expected"),
+    [
+        ('"@odata.nextLink": "https://graph.example/v1.0/users?$skiptoken=abc"', "@odata.nextLink"),
+        ('"nextLink": "https://example.test/next"', "nextLink"),
+        ('"@ODATA.NEXTLINK": "https://example.test/next"', "@ODATA.NEXTLINK"),
+        ('"@odata.count": 250', "@odata.count is 250, but the file holds 1 records"),
+        ('"count": 12', "count is 12, but the file holds 1 records"),
+    ],
+)
+def test_a_json_page_that_says_more_exists_is_flagged(
+    write: Callable[[str, str | bytes], Path], extras: str, expected: str
+) -> None:
+    """PAKAD-C02: a paged Graph export is not a complete population."""
+    path = write("graph.json", GRAPH_PAGE % extras)
+    table = read_table(path, SPEC, Side.COLLECTED)
+    assert len(table.paging_signals) == 1
+    assert expected in table.paging_signals[0]
+    assert [r.values.get("id") for r in table.records] == ["A1"]
+
+
+@pytest.mark.parametrize(
+    "extras",
+    [
+        '"@odata.nextLink": null',
+        '"@odata.nextLink": ""',
+        '"@odata.nextLink": 5',
+        '"@odata.count": 1',
+        '"count": "7"',
+        '"count": 1.5',
+        '"@odata.deltaLink": "https://graph.example/v1.0/users/delta?$deltatoken=x"',
+    ],
+)
+def test_a_json_wrapper_that_does_not_say_more_exists_is_not_flagged(
+    write: Callable[[str, str | bytes], Path], extras: str
+) -> None:
+    path = write("graph.json", GRAPH_PAGE % extras)
+    assert read_table(path, SPEC, Side.COLLECTED).paging_signals == ()
+
+
+def test_a_huge_count_is_a_different_total_and_does_not_crash(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    path = write("graph.json", GRAPH_PAGE % ('"count": ' + "9" * 5000))
+    assert len(read_table(path, SPEC, Side.COLLECTED).paging_signals) == 1
+
+
+def test_plain_arrays_and_csv_have_no_paging_signals(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    assert read_table(write("a.json", '[{"id": "1"}]'), SPEC, Side.EXPECTED).paging_signals == ()
+    assert read_table(write("a.csv", "id\n1\n"), SPEC, Side.EXPECTED).paging_signals == ()

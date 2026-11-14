@@ -656,3 +656,23 @@ def test_error_messages_name_the_whole_path_but_reports_keep_only_the_file_name(
     report = (out / "pakad-report.json").read_text(encoding="utf-8")
     assert str(EXAMPLE_DIR) not in report
     assert str(tmp_path) not in report
+
+
+def test_a_paged_graph_export_is_reported_not_accepted_as_complete(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAKAD-C02: ``@odata.nextLink`` means the export is one page of a larger result."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA1\n")
+    page = write(
+        "graph.json",
+        '{"@odata.nextLink": "https://graph.example/v1.0/users?$skiptoken=abc",'
+        ' "value": [{"uid": "A1"}]}',
+    )
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(page), "-o", str(tmp_path)]
+    assert main([*args, "-f", "json,md"]) == ExitCode.FINDINGS
+    report = json.loads((tmp_path / "pakad-report.json").read_text(encoding="utf-8"))
+    kinds = [f["kind"] for f in report["findings"]]
+    assert kinds == ["possible-truncation"]
+    assert "@odata.nextLink is present" in report["findings"][0]["details"]["signal"]
+    assert "No findings" not in capsys.readouterr().out

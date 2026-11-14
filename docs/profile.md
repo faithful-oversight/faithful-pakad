@@ -82,7 +82,7 @@ Optional. Repeat the table once for each field to compare on matched records.
 
 An absent value never equals anything, including another absent value, so missing data always shows up as a `field-mismatch`.
 
-Fields are compared only when each side has exactly one record for the key. When duplicates make the pairing unclear, pakad skips the comparison for that key and says so under **Not verified**.
+A profile with no `[[compare]]` section compares only key presence, and the report lists "field comparison" under **Not verified**, so a run that compared no fields is never read as a full pass. Fields are compared only when each side has exactly one record for the key. When duplicates make the pairing unclear, pakad skips the comparison for that key and says so under **Not verified**.
 
 ## `[collection]`
 
@@ -97,4 +97,4 @@ Optional checks on the collected export as a whole.
 | `naive_timestamps` | `reject` | How to treat capture times without a time zone: `reject` reports them as invalid, `utc` treats them as UTC. |
 | `page_sizes` | `[1000, 1500, 5000]` | Warn when the collected record count, overall or for any source, is an exact multiple of one of these numbers. Use `[]` to switch the check off. |
 
-Checks that are not configured are listed under **Not verified** in every report, so a reader can see what was not checked.
+Checks that are not configured are listed under **Not verified** in every report, so a reader can see what was not checked. That includes field comparison: a profile with no `[[compare]]` fields compares only that each key exists, and the report says so.
