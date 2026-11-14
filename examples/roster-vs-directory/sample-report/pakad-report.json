@@ -3,15 +3,15 @@
   "schema_version": "1.0",
   "tool": {
     "name": "pakad",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
-  "run_id": "7054929deee74c35b006ab44605a4654",
-  "generated_at": "2026-11-07T23:24:18+00:00",
+  "run_id": "a156f8a609864ae4985bd34198b4746c",
+  "generated_at": "2026-11-14T22:54:12+00:00",
   "as_of": "2026-11-07T12:00:00+00:00",
   "profile": {
     "name": "HR roster vs directory export",
     "file": "profile.toml",
-    "sha256": "285f99b876116a207b924538fa817ee973d076e8d8068fa4ce48c8abbf7f7b81"
+    "sha256": "2b264b4cf47a61110239dc7dfb063b9e83fe8ec78d88ba7e959febfc3250d362"
   },
   "inputs": {
     "expected": {

@@ -29,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The profile documentation now says that normalization steps run in the order listed and that `nfkc` should come first, because a later `casefold` or `strip` cleans up what NFKC creates. The step table and the example profile list `nfkc` first.
 - The limitations page now states measured memory use: about 650 to 1,100 bytes per record, or 14 to 80 times the file size depending on row width, instead of "several times the file size". It also says that `--max-bytes` limits bytes, not records.
 
 ## [0.1.1] - 2026-11-11

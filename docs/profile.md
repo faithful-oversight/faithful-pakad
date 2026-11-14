@@ -56,16 +56,18 @@ Both tables take the same settings and both are required.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `normalize` | `["strip"]` | Steps applied to key values before matching, in order. |
+| `normalize` | `["strip"]` | Steps applied to key values before matching, in the order listed. |
 
 Available normalization steps:
 
 | Step | Effect |
 | --- | --- |
-| `strip` | Removes spaces, tabs, and line breaks at the start and end. |
-| `casefold` | Ignores letter case, including for non-English letters. |
-| `collapse-whitespace` | Turns every run of whitespace inside the value into one space. |
 | `nfkc` | Applies Unicode NFKC normalization, so look-alike forms such as full-width digits compare as plain digits. |
+| `strip` | Removes spaces, tabs, and line breaks at the start and end. |
+| `collapse-whitespace` | Turns every run of whitespace inside the value into one space. |
+| `casefold` | Ignores letter case, including for non-English letters. |
+
+The steps run exactly in the order you list them, and the order changes the result. Put `nfkc` first. NFKC can create new capital letters, new spaces, and new leading or trailing whitespace, so a later `casefold` or `strip` cleans up what it made, while an earlier one does not. For example, with `["casefold", "nfkc"]` the letters U+03D2 and U+03A5 become different keys (`Υ` and `υ`), and with `["nfkc", "casefold"]` they match. The report's rules list the steps in the order they ran.
 
 Choose steps deliberately. If two different raw keys become identical after normalization, pakad reports an `ambiguous-key` finding rather than silently merging them.
 
