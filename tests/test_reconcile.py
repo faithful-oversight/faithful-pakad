@@ -347,3 +347,21 @@ def test_a_file_that_says_it_is_one_page_is_a_finding_even_without_page_sizes() 
     assert found.details["input"] == "collected"
     assert found.details["signal"] == "@odata.nextLink is present"
     assert "incomplete" in found.message
+
+
+def test_a_table_with_no_records_and_no_columns_is_empty_not_a_missing_column() -> None:
+    """PAKAD-C09: an empty JSON export (``[]``) has no columns to check."""
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = Table(Side.COLLECTED, "collected.json", "0" * 64, 0, (), ())
+    result = reconcile(profile, exp, col, as_of=AS_OF)
+    assert kinds(result) == [Kind.MISSING, Kind.EMPTY_INPUT]
+    assert only(result, Kind.EMPTY_INPUT).details["file"] == "collected.json"
+
+
+def test_a_header_only_table_still_needs_the_profile_columns() -> None:
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = table(Side.COLLECTED, [], columns=("other",))
+    with pytest.raises(InputError, match="is missing 1 column: uid"):
+        reconcile(profile, exp, col, as_of=AS_OF)

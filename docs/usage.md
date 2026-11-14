@@ -28,7 +28,7 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 | `-o`, `--out-dir` | Directory for the reports. Created if needed. |
 | `-f`, `--format` | Comma-separated list of `html`, `json`, `csv`, `md`. Default: all four. |
 | `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. Default: now. |
-| `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. |
+| `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. `error` ignores warnings, including `empty-input`, so two empty inputs report two warnings and still exit 0 under `--fail-on error`; read the summary, or use the default. |
 | `--max-bytes` | Refuse input files larger than this many bytes. Default: 268435456 (256 MiB). |
 | `--force` | Overwrite report files that already exist. Without it, pakad refuses. |
 

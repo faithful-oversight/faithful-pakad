@@ -115,6 +115,10 @@ def _collected_columns(profile: Profile) -> list[str]:
 
 
 def _require_columns(table: Table, needed: Iterable[str]) -> None:
+    if not table.records and not table.columns:
+        # A JSON export with no records has no columns to check. It is reported as an
+        # empty input instead of sending the user to fix a profile that may be right.
+        return
     missing = [c for c in dict.fromkeys(needed) if c not in table.columns]
     if missing:
         available = ", ".join(table.columns) or "none"

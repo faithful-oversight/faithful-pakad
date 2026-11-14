@@ -27,7 +27,7 @@ The report also records the reference time used for freshness checks, the time i
 | `stale-record` | warning | A capture time is older than the profile allows. |
 | `invalid-timestamp` | warning | A capture time is absent, unusable, or more than five minutes after the reference time. |
 | `possible-truncation` | warning | A record count is an exact multiple of a common page size, or a JSON file says it is one page of a larger result (for example a non-empty `@odata.nextLink`). |
-| `empty-input` | warning | An input has a header but no records, which would otherwise look like a clean result. |
+| `empty-input` | warning | An input has a header but no records, or is a JSON export with no records (`[]` or `{"value": []}`), which would otherwise look like a clean result. |
 
 A finding is a fact about the inputs, not a judgment. For example, `unexpected` means the record is unmatched, not that the access is unauthorized.
 

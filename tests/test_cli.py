@@ -692,3 +692,21 @@ def test_a_no_break_space_in_a_key_is_visible_in_the_report(
         text = (tmp_path / name).read_text(encoding="utf-8")
         assert NO_BREAK_SPACE not in text, name
         assert "A\\u00a01" in text.replace("\\\\", "\\"), name
+
+
+@pytest.mark.parametrize("empty", ["[]", '{"value": []}', '{"records": []}'])
+def test_an_empty_json_export_is_an_empty_input_not_a_profile_problem(
+    write: Callable[[str, str | bytes], Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    empty: str,
+) -> None:
+    """PAKAD-C09: the same situation as a header-only CSV gets the same finding."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA1\n")
+    col = write("c.json", empty)
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(tmp_path)]
+    assert main([*args, "-f", "json"]) == ExitCode.FINDINGS
+    report = json.loads((tmp_path / "pakad-report.json").read_text(encoding="utf-8"))
+    assert sorted(f["kind"] for f in report["findings"]) == ["empty-input", "missing"]
+    assert "missing 1 column" not in capsys.readouterr().err
