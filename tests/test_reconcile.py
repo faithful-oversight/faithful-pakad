@@ -5,20 +5,27 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 
+import jsonschema
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from faithful_pakad.errors import InputError
 from faithful_pakad.model import Finding, Kind, Record, Result, Side, SourceRef, Table
+from faithful_pakad.outputs import build_report
 from faithful_pakad.profile import parse_profile
 from faithful_pakad.reconcile import parse_timestamp, reconcile
 from tests.conftest import MINIMAL_PROFILE
 
 AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
+REPORT_SCHEMA = json.loads(
+    files("faithful_pakad").joinpath("schema/report-v1.schema.json").read_text(encoding="utf-8")
+)
 Rows = Sequence[Mapping[str, str | None]]
 NO_PAGING = MINIMAL_PROFILE + "[collection]\npage_sizes = []\n"
 
@@ -395,3 +402,67 @@ def test_the_age_limit_is_reported_exactly_as_configured(configured: str, shown:
     old = "2026-11-01T12:00:00Z"
     stale = only(run(text, [{"id": "1"}], [{"uid": "1", "at": old}]), Kind.STALE_RECORD)
     assert stale.details["max_age_hours"] == shown
+
+
+FOLDING = NO_PAGING + "[match]\nnormalize = ['strip', 'casefold']\n"
+RAW_KEYS = st.lists(
+    st.sampled_from(["a", "A", " a", "a ", "b", "B", "", " ", "ß", "SS", "ss", chr(0xA0)]),
+    max_size=8,
+)
+
+
+def oracle(raw: list[str]) -> dict[str, list[str]]:
+    """Group raw keys by normalized key, the straightforward way."""
+    groups: dict[str, list[str]] = {}
+    for value in raw:
+        norm = value.strip().casefold()
+        if norm:
+            groups.setdefault(norm, []).append(value)
+    return groups
+
+
+@given(expected=RAW_KEYS, collected=RAW_KEYS)
+def test_reconcile_agrees_with_a_simple_oracle_and_the_schema(
+    expected: list[str], collected: list[str]
+) -> None:
+    """PAKAD-C13: counts per kind, matched keys and the report schema, on random inputs."""
+    result = run(FOLDING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
+    exp, col = oracle(expected), oracle(collected)
+    counts = {kind: kinds(result).count(kind) for kind in Kind}
+    assert counts[Kind.MISSING] == len(exp.keys() - col.keys())
+    assert counts[Kind.UNEXPECTED] == len(col.keys() - exp.keys())
+    assert result.matched_keys == len(exp.keys() & col.keys())
+    assert counts[Kind.BLANK_KEY] == sum(1 for k in [*expected, *collected] if not k.strip())
+    repeated = [g for side in (exp, col) for g in side.values() if len(g) > 1]
+    assert counts[Kind.AMBIGUOUS_KEY] == sum(1 for g in repeated if len(set(g)) > 1)
+    assert counts[Kind.DUPLICATE_KEY] == sum(1 for g in repeated if len(set(g)) == 1)
+
+    profile = parse_profile(FOLDING)
+    exp_table = table(Side.EXPECTED, [{"id": k} for k in expected], ("id",))
+    col_table = table(Side.COLLECTED, [{"uid": k} for k in collected], ("uid",))
+    report = build_report(
+        result,
+        profile,
+        exp_table,
+        col_table,
+        as_of=AS_OF,
+        generated_at=AS_OF,
+        run_id="0" * 32,
+    )
+    jsonschema.validate(report, REPORT_SCHEMA, format_checker=jsonschema.FormatChecker())
+
+
+@pytest.mark.parametrize(
+    ("offset_hours", "kind"),
+    [
+        (24, None),  # exactly the limit is still fresh
+        (24.0003, Kind.STALE_RECORD),  # one second over
+        (-5 / 60, None),  # exactly five minutes after the reference time is allowed
+        (-5 / 60 - 1 / 3600, Kind.INVALID_TIMESTAMP),  # one second later is not
+    ],
+)
+def test_freshness_boundaries(offset_hours: float, kind: Kind | None) -> None:
+    """PAKAD-C13: the age limit and the clock tolerance are inclusive."""
+    captured = (AS_OF - timedelta(hours=offset_hours)).isoformat()
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": captured}])
+    assert kinds(result) == ([kind] if kind else [])
