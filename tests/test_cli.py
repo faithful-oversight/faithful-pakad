@@ -606,13 +606,16 @@ def run_pakad(
         return subprocess.run(  # noqa: S603 - fixed arguments, run from the test suite
             command, env=full_env, capture_output=True, check=False, cwd=tmp
         )
-    process = subprocess.Popen(  # noqa: S603 - fixed arguments, run from the test suite
+    with subprocess.Popen(  # noqa: S603 - fixed arguments, run from the test suite
         command, env=full_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmp
-    )
-    assert process.stdout is not None
-    process.stdout.close()
-    _, stderr = process.communicate()
-    return subprocess.CompletedProcess(command, process.returncode, b"", stderr)
+    ) as process:
+        assert process.stdout is not None
+        assert process.stderr is not None
+        process.stdout.close()  # the reader goes away before the child prints
+        # Not communicate(): on Windows it starts a reader thread for the closed stdout.
+        stderr = process.stderr.read()
+        returncode = process.wait(timeout=120)
+    return subprocess.CompletedProcess(command, returncode, b"", stderr)
 
 
 def test_ascii_only_output_with_a_non_ascii_path_keeps_the_exit_code(tmp_path: Path) -> None:

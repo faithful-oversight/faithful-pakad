@@ -138,7 +138,7 @@ def test_a_directory_that_cannot_be_searched_is_an_input_error(tmp_path: Path) -
     locked.mkdir()
     locked.chmod(0o600)
     try:
-        with pytest.raises(PakadError, match=r"cannot check .*locked"):
+        with pytest.raises(PakadError, match=r"(cannot check|cannot write reports in) .*locked"):
             write_files(locked, {"a.txt": "x"}, force=False)
     finally:
         locked.chmod(0o700)
