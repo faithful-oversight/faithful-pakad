@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The release script now treats only a clean "not found" answer as an absent tag; an authentication, rate-limit, network, or malformed answer stops the release.
 - The dependency audit always includes every optional extra, and a new check fails it when a package named by an extra is missing from the audited export.
 - The release evidence is now one SBOM per scope: `sbom-base.cdx.json` for the base install, and `sbom-all-extras.cdx.json` when the project defines optional extras. Each states its scope, and tests check what each one holds.
+- The sign-off check no longer lets a commit skip sign-off by claiming Dependabot as its author. Dependabot is exempt only on its own pull requests.
+- The required "All checks passed" check now fails if a CI job is missing, and a skipped title or sign-off check no longer counts as a pass on a pull request.
+- `scripts/check.sh workflows` prints a clear message instead of a stack trace when GitHub rejects the token.
+- `SECURITY.md` no longer says that no release has been published. It says the latest release is supported.
 
 ### Changed
 
@@ -38,10 +42,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A presence-only profile (no `[[compare]]` fields) now gets the headline "No findings in the supplied inputs, but 1 check did not run" where it used to get a plain pass. The example profile compares fields and is unchanged.
 - The README now leads with an install route that works before the first PyPI release (`pipx install git+https://github.com/faithful-oversight/faithful-pakad`), a status line, a short comparison with other approaches, a link to the documentation folder, and a real excerpt of the example report. The quickstart shows the current version.
 - The package keywords no longer include "compliance", and the README and NOTICE say that pakad is not affiliated with or endorsed by Microsoft.
+- Dependabot groups minor and patch updates of runtime dependencies into one pull request.
+- `CONTRIBUTING.md` lists every tool a clean machine needs and which checks need network access or a token.
+- The releasing guide covers the first PyPI publish, a failed PyPI step, scheduled checks that stop after 60 idle days, both SBOM files, and the pinned tools.
 
 ### Security
 
 - Characters that look like a space but are not the ASCII space (no-break space, the en and em spaces, the ideographic space, and the blank braille pattern) now print as visible escapes in every report format and in the terminal, so two keys that differ only by one of them no longer look identical, and such a character cannot sit in front of a formula in the CSV report.
+- A release now stops with a clear message when the `FO_PUBLIC` setting disagrees with whether the repository is public, so a public release cannot skip provenance and PyPI by mistake.
+- Release jobs check the built files against `SHA256SUMS` before attesting, uploading or publishing.
+- uv and the Vale style packages used in CI are pinned to exact versions, and the style packages are checked against a SHA-256 before use.
 
 ## [0.1.1] - 2026-11-11
 
