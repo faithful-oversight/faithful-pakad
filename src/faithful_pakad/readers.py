@@ -80,11 +80,11 @@ def read_table(
 
     fmt = spec.format if spec.format != "auto" else _detect_format(path)
     if fmt == "json":
-        columns, records, signals = _read_json(text, name, where, side)
+        columns, records, incomplete, paging = _read_json(text, name, where, side)
     else:
         delimiter = spec.delimiter or ("\t" if path.suffix.lower() == ".tsv" else ",")
         columns, records = _read_csv(text, name, where, side, delimiter)
-        signals = ()
+        incomplete = paging = ()
     return Table(
         side=side,
         file=name,
@@ -93,7 +93,8 @@ def read_table(
         size_bytes=len(raw),
         columns=columns,
         records=records,
-        paging_signals=signals,
+        paging_signals=paging,
+        incomplete_signals=incomplete,
     )
 
 
@@ -222,7 +223,7 @@ def _reject_constant(value: str) -> None:
 
 def _read_json(
     text: str, name: str, where: str, side: Side
-) -> tuple[tuple[str, ...], tuple[Record, ...], tuple[str, ...]]:
+) -> tuple[tuple[str, ...], tuple[Record, ...], tuple[str, ...], tuple[str, ...]]:
     try:
         data = json.loads(
             text,
@@ -234,13 +235,14 @@ def _read_json(
     except (ValueError, RecursionError) as exc:
         msg = f"{where}: not valid JSON: {exc}"
         raise InputError(msg) from exc
-    signals: tuple[str, ...] = ()
+    incomplete: tuple[str, ...] = ()
+    paging: tuple[str, ...] = ()
     if isinstance(data, dict):
         found = [k for k in JSON_LIST_KEYS if isinstance(data.get(k), list)]
         if len(found) != 1:
             msg = f"{where}: expected a JSON array, or an object with a 'value' or 'records' array"
             raise InputError(msg)
-        signals = _paging_signals(data, len(data[found[0]]))
+        incomplete, paging = _paging_signals(data, len(data[found[0]]))
         data = data[found[0]]
     if not isinstance(data, list):
         msg = f"{where}: expected a JSON array of objects"
@@ -264,25 +266,28 @@ def _read_json(
         Record(SourceRef(side, name, index, "item"), _json_values(item, where, index))
         for index, item in enumerate(rows, start=1)
     )
-    return tuple(columns), records, signals
+    return tuple(columns), records, incomplete, paging
 
 
-def _paging_signals(wrapper: dict[str, Any], held: int) -> tuple[str, ...]:
+def _paging_signals(wrapper: dict[str, Any], held: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return what a JSON wrapper says about being one page of a larger result.
 
     A Microsoft Graph page carries ``@odata.nextLink`` when more pages follow, and
     ``@odata.count`` gives the total when the query asked for it. A link that is
     empty or null means the last page, so it is not a signal. Each signal is a
-    short sentence that goes into the report.
+    short sentence that goes into the report. The first result holds proof that the
+    file is incomplete (a next-page link); the second holds a total that differs from
+    the records held, which a filtered export can do legitimately.
     """
-    signals: list[str] = []
+    incomplete: list[str] = []
+    differs: list[str] = []
     for key, value in wrapper.items():
         plain = key.strip().lstrip("@").lower()
         if plain in NEXT_LINK_KEYS and type(value) is str and value.strip():
-            signals.append(f"{key} is present, so another page of results exists")
+            incomplete.append(f"{key} is present, so another page of results exists")
         elif plain in COUNT_KEYS and _count_differs(value, held):
-            signals.append(f"{key} is {value}, but the file holds {held} records")
-    return tuple(signals)
+            differs.append(f"{key} is {value}, but the file holds {held} records")
+    return tuple(incomplete), tuple(differs)
 
 
 def _count_differs(value: object, held: int) -> bool:

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from faithful_pakad.model import Finding, Result, SourceRef, Table
     from faithful_pakad.profile import Profile
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 SCHEMA_ID = "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json"
 """Identifier of the report schema. ``pakad schema`` prints the same schema offline."""
 

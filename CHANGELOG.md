@@ -11,13 +11,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - A profile with no `[[compare]]` fields now lists "field comparison" under Not verified, so a presence-only run is no longer reported as a clean pass.
-- A JSON export that says it is one page of a larger result (a non-empty `@odata.nextLink`, or an `@odata.count` or `count` that differs from the number of records) is now reported as a `possible-truncation` warning instead of being accepted as complete.
+- A JSON export with a non-empty `@odata.nextLink` is now an `incomplete-export` error instead of being accepted as complete, so the run exits 1 under `--fail-on any` and `error`. An `@odata.count` or `count` that differs from the number of records is a `possible-truncation` warning.
 - When the summary cannot be printed (a closed pipe such as `pakad ... | head`, or output that cannot encode a character in a path), the run now keeps its real exit code instead of ending with exit 4. The reports were already written.
 - Error messages now name the whole path you gave, not only the file name. Reports still record only the file name.
 - A large `--max-bytes` value no longer makes a tiny file fail with exit 4 (`MemoryError` or `OverflowError`). Files are now read in blocks.
 - An output directory that exists but cannot be searched (for example mode 0600) is now an input error (exit 3) with a clear message, not an internal error (exit 4).
 - A deeply nested profile is now a profile error (exit 3, "profile is nested too deeply") instead of an internal error (exit 4).
 - An empty JSON export (`[]` or `{"value": []}`) is now reported as an empty input, like a header-only CSV, instead of failing with "is missing 1 column".
+- When both inputs are empty, the report now has one `nothing-reconciled` error with the headline "Nothing was reconciled: both inputs are empty", and the run exits 1 under `--fail-on any` and `error`. A single empty input stays a warning.
 - A key repeated thousands of times no longer puts every source reference into one CSV cell, which went past a spreadsheet's 32,767-character limit. The CSV, HTML, and Markdown reports list the first 20 references and say how many more there are; the JSON report keeps all of them.
 - A profile's `equivalents` no longer turns identical values into a `field-mismatch`. A collected value that equals the expected value always matches; an equivalent only adds another accepted form.
 - The report now states a configured `max_age_hours` exactly (for example `1.23456789`, not `1.23457`), in both the rules applied and the stale-record details.
@@ -37,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The JSON report schema is now version 1.1. It adds the `incomplete-export` and `nothing-reconciled` finding kinds; their counts are optional, so 1.0 reports still validate.
 - The profile documentation now says that normalization steps run in the order listed and that `nfkc` should come first, because a later `casefold` or `strip` cleans up what NFKC creates. The step table and the example profile list `nfkc` first.
 - The limitations page now states measured memory use: about 650 to 1,100 bytes per record, or 14 to 80 times the file size depending on row width, instead of "several times the file size". It also says that `--max-bytes` limits bytes, not records.
 - A presence-only profile (no `[[compare]]` fields) now gets the headline "No findings in the supplied inputs, but 1 check did not run" where it used to get a plain pass. The example profile compares fields and is unchanged.

@@ -1,12 +1,12 @@
 {
   "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/report-v1.schema.json",
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "tool": {
     "name": "pakad",
     "version": "0.1.2"
   },
-  "run_id": "c70533e3eea44f9697407f1ae8cc277e",
-  "generated_at": "2026-11-14T22:57:12+00:00",
+  "run_id": "badf862b0de34c4487ef164d96ded36d",
+  "generated_at": "2026-11-15T05:07:54+00:00",
   "as_of": "2026-11-07T12:00:00+00:00",
   "profile": {
     "name": "HR roster vs directory export",
@@ -54,6 +54,8 @@
       "blank-key": 1,
       "field-mismatch": 1,
       "missing-source": 1,
+      "incomplete-export": 0,
+      "nothing-reconciled": 0,
       "stale-record": 1,
       "invalid-timestamp": 1,
       "possible-truncation": 0,

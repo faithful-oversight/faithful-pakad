@@ -24,10 +24,12 @@ The report also records the reference time used for freshness checks, the time i
 | `blank-key` | error | A record's key is absent or empty, so it cannot be matched. |
 | `field-mismatch` | error | A matched pair has different values in a compared field. |
 | `missing-source` | error | An expected source contributed no collected records. |
+| `incomplete-export` | error | A JSON export says it is one page of a larger result (a non-empty `@odata.nextLink`), so the population it holds is incomplete. |
+| `nothing-reconciled` | error | Both inputs have no records, so nothing was compared. |
 | `stale-record` | warning | A capture time is older than the profile allows. |
 | `invalid-timestamp` | warning | A capture time is absent, unusable, or more than five minutes after the reference time. |
-| `possible-truncation` | warning | A record count is an exact multiple of a common page size, or a JSON file says it is one page of a larger result (for example a non-empty `@odata.nextLink`). |
-| `empty-input` | warning | An input has a header but no records, or is a JSON export with no records (`[]` or `{"value": []}`), which would otherwise look like a clean result. |
+| `possible-truncation` | warning | A record count is an exact multiple of a common page size, or a JSON file states a total (`@odata.count` or `count`) that differs from the records it holds. |
+| `empty-input` | warning | One input has a header but no records, or is a JSON export with no records (`[]` or `{"value": []}`), which would otherwise look like a clean result. When both inputs are empty, the finding is `nothing-reconciled` instead. |
 
 A finding is a fact about the inputs, not a judgment. For example, `unexpected` means the record is unmatched, not that the access is unauthorized.
 
@@ -48,7 +50,7 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "tool": {"name": "pakad", "version": "0.1.2"},
   "summary": {"expected_records": 9, "collected_records": 12, "matched_keys": 8,
               "errors": 7, "warnings": 2, "findings_by_kind": {"missing": 1, "...": 0}},
@@ -68,6 +70,7 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 
 Compatibility promise:
 
+- Schema 1.1 added the `incomplete-export` and `nothing-reconciled` finding kinds. Their counts in `findings_by_kind` are optional in the schema, so a 1.0 report still validates against it.
 - Within major version 1, a release may add optional properties or new finding kinds. Each such change raises the minor `schema_version`, for example from `1.0` to `1.1`, and ships the matching schema.
 - Existing properties and finding kinds are never removed or renamed within a major version. A breaking change gets a new major schema version and a new major pakad release.
 - The schema is strict, so a `1.0` validator rejects a `1.1` report's new fields. Validate each report with the schema for its `schema_version`, which `pakad schema` from the same pakad version prints. Consumers that read reports without validating should ignore properties and finding kinds they do not know.

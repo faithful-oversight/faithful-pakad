@@ -671,12 +671,37 @@ def test_a_paged_graph_export_is_reported_not_accepted_as_complete(
         ' "value": [{"uid": "A1"}]}',
     )
     args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(page), "-o", str(tmp_path)]
-    assert main([*args, "-f", "json,md"]) == ExitCode.FINDINGS
-    report = json.loads((tmp_path / "pakad-report.json").read_text(encoding="utf-8"))
-    kinds = [f["kind"] for f in report["findings"]]
-    assert kinds == ["possible-truncation"]
-    assert "@odata.nextLink is present" in report["findings"][0]["details"]["signal"]
+    for fail_on in ("any", "error"):
+        out = tmp_path / fail_on
+        assert main([*args[:-1], str(out), "-f", "json,md", "--fail-on", fail_on]) == (
+            ExitCode.FINDINGS
+        )
+        report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+        assert [f["kind"] for f in report["findings"]] == ["incomplete-export"]
+        assert report["findings"][0]["severity"] == "error"
+        assert "@odata.nextLink is present" in report["findings"][0]["details"]["signal"]
+        assert "incomplete" in (out / "pakad-report.md").read_text(encoding="utf-8")
     assert "No findings" not in capsys.readouterr().out
+
+
+def test_two_empty_inputs_fail_the_run_under_every_fail_on_that_can_fail(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing was reconciled: an error, with its own headline."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\n")
+    col = write("c.csv", "uid\n")
+    base = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col)]
+    for fail_on in ("any", "error"):
+        out = tmp_path / fail_on
+        assert main([*base, "-o", str(out), "--fail-on", fail_on]) == ExitCode.FINDINGS
+    assert "Nothing was reconciled: both inputs are empty." in capsys.readouterr().out
+    assert main([*base, "-o", str(tmp_path / "n"), "--fail-on", "never"]) == ExitCode.OK
+    # One empty input stays a warning, so --fail-on error passes.
+    one = write("one.csv", "uid\nA1\n")
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(one)]
+    code = main([*args, "-o", str(tmp_path / "one"), "--fail-on", "error"])
+    assert code == ExitCode.FINDINGS  # the unexpected record is an error
 
 
 def test_a_no_break_space_in_a_key_is_visible_in_the_report(

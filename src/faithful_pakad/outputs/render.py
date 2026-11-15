@@ -96,8 +96,13 @@ def _status(report: Report) -> tuple[str, str]:
     full pass when part of the review was skipped.
     """
     s = report["summary"]
+    by_kind = s["findings_by_kind"]
+    if by_kind.get("nothing-reconciled"):
+        return "fail", "Nothing was reconciled: both inputs are empty"
     if s["errors"]:
         found = f"{count(s['errors'], 'error')} and {count(s['warnings'], 'warning')}"
+        if by_kind.get("incomplete-export"):
+            return "fail", f"An input is incomplete (more pages exist). {found} need review"
         return "fail", f"{found} need review"
     if s["warnings"]:
         return "warn", f"No errors. {count(s['warnings'], 'warning')} need review"

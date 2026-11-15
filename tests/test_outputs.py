@@ -70,8 +70,9 @@ ALL_KINDS = tuple(
 def test_report_matches_schema_with_every_kind() -> None:
     report = make_report(ALL_KINDS, (Unknown("check", EVIL),))
     jsonschema.validate(report, SCHEMA, format_checker=jsonschema.FormatChecker())
-    assert report["summary"]["errors"] == 7
+    assert report["summary"]["errors"] == 9
     assert report["summary"]["warnings"] == 4
+    assert report["schema_version"] == "1.1"
     assert all(n == 1 for n in report["summary"]["findings_by_kind"].values())
     assert report["findings"][0]["id"] == "F00001"
     assert report["findings"][0]["refs"][1] == {

@@ -39,6 +39,8 @@ class Kind(StrEnum):
     BLANK_KEY = "blank-key"
     FIELD_MISMATCH = "field-mismatch"
     MISSING_SOURCE = "missing-source"
+    INCOMPLETE_EXPORT = "incomplete-export"
+    NOTHING_RECONCILED = "nothing-reconciled"
     STALE_RECORD = "stale-record"
     INVALID_TIMESTAMP = "invalid-timestamp"
     POSSIBLE_TRUNCATION = "possible-truncation"
@@ -53,6 +55,8 @@ SEVERITY: Mapping[Kind, Severity] = {
     Kind.BLANK_KEY: Severity.ERROR,
     Kind.FIELD_MISMATCH: Severity.ERROR,
     Kind.MISSING_SOURCE: Severity.ERROR,
+    Kind.INCOMPLETE_EXPORT: Severity.ERROR,
+    Kind.NOTHING_RECONCILED: Severity.ERROR,
     Kind.STALE_RECORD: Severity.WARNING,
     Kind.INVALID_TIMESTAMP: Severity.WARNING,
     Kind.POSSIBLE_TRUNCATION: Severity.WARNING,
@@ -106,7 +110,9 @@ class Table:
     path: str = ""
     """The path as the user gave it, for error messages. Reports use ``file`` instead."""
     paging_signals: tuple[str, ...] = ()
-    """Statements in a JSON wrapper that the file is one page of a larger result."""
+    """Statements in a JSON wrapper that the total may differ from the records held."""
+    incomplete_signals: tuple[str, ...] = ()
+    """Statements in a JSON wrapper that more pages exist, so the file is incomplete."""
 
 
 @dataclass(frozen=True, slots=True)

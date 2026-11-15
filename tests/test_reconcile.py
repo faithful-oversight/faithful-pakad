@@ -220,8 +220,12 @@ def test_empty_export_is_not_flagged_as_truncated() -> None:
 
 def test_empty_inputs_are_never_a_clean_result() -> None:
     result = run(NO_PAGING, [], [])
-    assert kinds(result) == [Kind.EMPTY_INPUT, Kind.EMPTY_INPUT]
-    assert [f.details["input"] for f in result.findings] == ["expected", "collected"]
+    assert kinds(result) == [Kind.NOTHING_RECONCILED]
+    assert result.findings[0].severity.value == "error"
+    one = run(NO_PAGING, [{"id": "1"}], [])
+    assert Kind.EMPTY_INPUT in kinds(one)
+    assert Kind.NOTHING_RECONCILED not in kinds(one)
+    assert only(one, Kind.EMPTY_INPUT).severity.value == "warning"
 
 
 def test_future_capture_times_are_invalid() -> None:
@@ -348,12 +352,16 @@ def test_a_file_that_says_it_is_one_page_is_a_finding_even_without_page_sizes() 
     profile = parse_profile(NO_PAGING)
     exp = table(Side.EXPECTED, [{"id": "1"}])
     col = table(Side.COLLECTED, [{"uid": "1"}])
-    col = dataclasses.replace(col, paging_signals=("@odata.nextLink is present",))
-    result = reconcile(profile, exp, col, as_of=AS_OF)
-    found = only(result, Kind.POSSIBLE_TRUNCATION)
+    incomplete = dataclasses.replace(col, incomplete_signals=("@odata.nextLink is present",))
+    result = reconcile(profile, exp, incomplete, as_of=AS_OF)
+    found = only(result, Kind.INCOMPLETE_EXPORT)
+    assert found.severity.value == "error"
     assert found.details["input"] == "collected"
     assert found.details["signal"] == "@odata.nextLink is present"
-    assert "incomplete" in found.message
+    assert Kind.POSSIBLE_TRUNCATION not in kinds(result)
+    differs = dataclasses.replace(col, paging_signals=("count is 9, but the file holds 1",))
+    soft = only(reconcile(profile, exp, differs, as_of=AS_OF), Kind.POSSIBLE_TRUNCATION)
+    assert soft.severity.value == "warning"
 
 
 def test_a_table_with_no_records_and_no_columns_is_empty_not_a_missing_column() -> None:

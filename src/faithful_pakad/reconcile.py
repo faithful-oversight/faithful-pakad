@@ -57,7 +57,12 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
     _require_columns(expected, _expected_columns(profile))
     _require_columns(collected, _collected_columns(profile))
 
-    findings: list[Finding] = [_empty(t) for t in (expected, collected) if not t.records]
+    findings: list[Finding] = []
+    if not expected.records and not collected.records:
+        findings.append(_nothing_reconciled(expected, collected))
+    else:
+        findings.extend(_empty(t) for t in (expected, collected) if not t.records)
+    findings.extend(_incomplete(t) for t in (expected, collected) if t.incomplete_signals)
     findings.extend(_declared_paging(t) for t in (expected, collected) if t.paging_signals)
     unknowns: list[Unknown] = []
     expected_index = _index(expected, profile.expected, profile.key_normalize, findings)
@@ -84,12 +89,34 @@ def _empty(table: Table) -> Finding:
     )
 
 
+def _nothing_reconciled(expected: Table, collected: Table) -> Finding:
+    return Finding(
+        kind=Kind.NOTHING_RECONCILED,
+        message="Both inputs have no records, so nothing was reconciled.",
+        details={"expected_file": expected.file, "collected_file": collected.file},
+    )
+
+
+def _incomplete(table: Table) -> Finding:
+    """Report a file that says more pages exist: it is incomplete, not merely possibly so."""
+    return Finding(
+        kind=Kind.INCOMPLETE_EXPORT,
+        message=f"The {table.side} input is one page of a larger result, so it is incomplete.",
+        details={
+            "input": table.side.value,
+            "file": table.file,
+            "signal": "; ".join(table.incomplete_signals),
+        },
+    )
+
+
 def _declared_paging(table: Table) -> Finding:
-    """Report a file that says it is one page of a larger result, whatever the page size."""
+    """Report a file whose stated total differs from the records it holds."""
     return Finding(
         kind=Kind.POSSIBLE_TRUNCATION,
         message=(
-            f"The {table.side} input says it is incomplete, so records may be missing from it."
+            f"The {table.side} input states a total that differs from its records, "
+            "so records may be missing from it."
         ),
         details={
             "input": table.side.value,

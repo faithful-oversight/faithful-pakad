@@ -243,19 +243,33 @@ GRAPH_PAGE = (
         ('"@odata.nextLink": "https://graph.example/v1.0/users?$skiptoken=abc"', "@odata.nextLink"),
         ('"nextLink": "https://example.test/next"', "nextLink"),
         ('"@ODATA.NEXTLINK": "https://example.test/next"', "@ODATA.NEXTLINK"),
+    ],
+)
+def test_a_next_page_link_marks_the_input_incomplete(
+    write: Callable[[str, str | bytes], Path], extras: str, expected: str
+) -> None:
+    """PAKAD-C02: a paged Graph export is not a complete population."""
+    table = read_table(write("graph.json", GRAPH_PAGE % extras), SPEC, Side.COLLECTED)
+    assert len(table.incomplete_signals) == 1
+    assert expected in table.incomplete_signals[0]
+    assert table.paging_signals == ()
+    assert [r.values.get("id") for r in table.records] == ["A1"]
+
+
+@pytest.mark.parametrize(
+    ("extras", "expected"),
+    [
         ('"@odata.count": 250', "@odata.count is 250, but the file holds 1 records"),
         ('"count": 12', "count is 12, but the file holds 1 records"),
     ],
 )
-def test_a_json_page_that_says_more_exists_is_flagged(
+def test_a_differing_total_is_only_a_possible_truncation_signal(
     write: Callable[[str, str | bytes], Path], extras: str, expected: str
 ) -> None:
-    """PAKAD-C02: a paged Graph export is not a complete population."""
-    path = write("graph.json", GRAPH_PAGE % extras)
-    table = read_table(path, SPEC, Side.COLLECTED)
+    table = read_table(write("graph.json", GRAPH_PAGE % extras), SPEC, Side.COLLECTED)
+    assert table.incomplete_signals == ()
     assert len(table.paging_signals) == 1
     assert expected in table.paging_signals[0]
-    assert [r.values.get("id") for r in table.records] == ["A1"]
 
 
 @pytest.mark.parametrize(
@@ -274,7 +288,9 @@ def test_a_json_wrapper_that_does_not_say_more_exists_is_not_flagged(
     write: Callable[[str, str | bytes], Path], extras: str
 ) -> None:
     path = write("graph.json", GRAPH_PAGE % extras)
-    assert read_table(path, SPEC, Side.COLLECTED).paging_signals == ()
+    table = read_table(path, SPEC, Side.COLLECTED)
+    assert table.paging_signals == ()
+    assert table.incomplete_signals == ()
 
 
 def test_a_huge_count_is_a_different_total_and_does_not_crash(

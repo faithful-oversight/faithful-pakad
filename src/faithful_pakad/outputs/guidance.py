@@ -66,6 +66,20 @@ GUIDANCE: dict[Kind, Guidance] = {
         "records to the collected export.",
         "Check whether collection ran against that source and finished successfully.",
     ),
+    Kind.INCOMPLETE_EXPORT: Guidance(
+        "Incomplete exports",
+        "The file itself says it is one page of a larger result, such as a Microsoft Graph "
+        "page with a non-empty @odata.nextLink. The population it holds is not complete.",
+        "Export every page, merge them into one file, and run again. Results from this file "
+        "alone are unreliable: records on other pages show as missing.",
+    ),
+    Kind.NOTHING_RECONCILED: Guidance(
+        "Nothing was reconciled",
+        "Both inputs have no records, so there was nothing to compare. An empty comparison "
+        "finds nothing, which can look like a clean result.",
+        "Confirm both exports ran and that both populations are really empty before "
+        "relying on this report.",
+    ),
     Kind.STALE_RECORD: Guidance(
         "Stale records",
         "A collected record's capture time is older than the profile allows.",
@@ -80,11 +94,11 @@ GUIDANCE: dict[Kind, Guidance] = {
     ),
     Kind.POSSIBLE_TRUNCATION: Guidance(
         "Possible paging truncation",
-        "A record count is an exact multiple of a common page size, or the file itself says "
-        "it is one page of a larger result, such as a Microsoft Graph page with an "
-        "@odata.nextLink. Paged exports that stop early often look like this.",
-        "Export every page and run again. For a count that only matches a page size, compare "
-        "it with the source system's own total; if they match, the warning can be ignored.",
+        "A record count is an exact multiple of a common page size, or a JSON file states a "
+        "total (such as @odata.count) that differs from the records it holds. Paged "
+        "exports that stop early often look like this.",
+        "Compare the count with the source system's own total. If they match, or the "
+        "export was filtered on purpose, the warning can be ignored.",
     ),
     Kind.EMPTY_INPUT: Guidance(
         "Empty inputs",
