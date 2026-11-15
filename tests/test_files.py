@@ -157,4 +157,5 @@ def test_a_permission_error_while_checking_targets_is_an_input_error(
         PakadError, match=r"cannot check .* for existing reports: Permission denied"
     ):
         write_files(tmp_path / "out", {"a.txt": "x"}, force=False)
-    assert not list((tmp_path / "out").glob("*"))
+    monkeypatch.undo()
+    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").iterdir())

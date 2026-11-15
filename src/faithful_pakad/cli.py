@@ -214,7 +214,8 @@ def _out(text: str, *, end: str = "\n") -> None:
     try:
         sys.stdout.write(text + end)
         sys.stdout.flush()
-    except BrokenPipeError:
+    except (OSError, ValueError):
+        # BrokenPipeError on POSIX; Windows reports a closed pipe as OSError EINVAL.
         _quiet_stdout()
 
 
@@ -312,15 +313,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else int(ExitCode.USAGE)
-    except BrokenPipeError:
-        # --help or --version printed into a pipe that was already closed.
+    except OSError:
+        # --help or --version printed into a pipe that was already closed (on Windows
+        # a closed pipe is OSError EINVAL, not BrokenPipeError).
         _quiet_stdout()
         return int(ExitCode.OK)
     handler = COMMANDS.get(args.command)
     if handler is None:
         try:
             parser.print_help()
-        except BrokenPipeError:
+        except OSError:
             _quiet_stdout()
         return int(ExitCode.USAGE)
     try:
