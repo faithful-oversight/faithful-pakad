@@ -129,3 +129,15 @@ def terminal(value: str) -> str:
     otherwise move the cursor back and print over the start of the line.
     """
     return visible(value).replace("\r", "\\r").replace("\t", "\\t")
+
+
+def terminal_line(value: str) -> str:
+    r"""Make an untrusted value safe to put inside one line of terminal output.
+
+    Everything ``terminal`` does, and a line feed also becomes a visible ``\n``.
+    Use it for every name, path, or message that comes from a file or a command
+    line and is placed into text that pakad lays out in lines of its own, so the
+    value can never add, replace, or imitate a line of that text. ``terminal``
+    alone keeps line feeds, which is only right for text pakad itself wrote.
+    """
+    return terminal(value).replace("\n", "\\n")

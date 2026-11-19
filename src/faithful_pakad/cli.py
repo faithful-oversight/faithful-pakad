@@ -28,7 +28,7 @@ from faithful_pakad.outputs.render import (
     render_all,
     terminal_summary,
 )
-from faithful_pakad.outputs.safety import terminal
+from faithful_pakad.outputs.safety import terminal_line
 from faithful_pakad.profile import load_profile
 from faithful_pakad.readers import DEFAULT_MAX_BYTES, read_table
 from faithful_pakad.reconcile import parse_timestamp, reconcile
@@ -204,7 +204,7 @@ def _run(args: argparse.Namespace) -> int:
     lines = [terminal_summary(report), "", "Reports:"]
     for path in written:
         hint = "  <- open this in a browser" if path.suffix == ".html" else ""
-        lines.append(f"  {terminal(str(path))}{hint}")
+        lines.append(f"  {terminal_line(str(path))}{hint}")
     _out("\n".join(lines))
     return code
 
@@ -281,7 +281,10 @@ def _example(directory: Path, *, force: bool) -> int:
         "--as-of",
         "2026-11-07T12:00:00Z",
     )
-    _out(terminal(f"Wrote a synthetic example to {directory}. Try it:\n\n  {command}"))
+    _out(
+        f"Wrote a synthetic example to {terminal_line(str(directory))}. Try it:\n\n"
+        f"  {terminal_line(command)}"
+    )
     return ExitCode.OK
 
 
@@ -294,7 +297,7 @@ def _command_line(*parts: str) -> str:
 
 def _check_profile(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
-    _out(terminal(f"{args.profile}: valid profile {profile.name!r}"))
+    _out(f"{terminal_line(str(args.profile))}: valid profile {terminal_line(repr(profile.name))}")
     return ExitCode.OK
 
 
@@ -316,10 +319,10 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 
 
 def _short(message: str) -> str:
-    """Return a message cut to a short, terminal-safe line of text."""
+    """Return a message cut to a short, terminal-safe, single line of text."""
     if len(message) > MAX_INTERNAL_MESSAGE_CHARS:
         message = message[:MAX_INTERNAL_MESSAGE_CHARS] + "..."
-    return terminal(message)
+    return terminal_line(message)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -346,7 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return int(handler(args))
     except PakadError as exc:
-        _err(f"pakad: error: {terminal(str(exc))}")
+        _err(f"pakad: error: {terminal_line(str(exc))}")
         return int(ExitCode.INPUT_ERROR)
     except Exception as exc:  # noqa: BLE001 - last resort, so a crash never looks like findings
         _err(

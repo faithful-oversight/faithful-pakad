@@ -993,3 +993,101 @@ def test_a_recorded_reference_time_replays_the_same_findings_in_any_accepted_for
     replay = json.loads((second / "pakad-report.json").read_text(encoding="utf-8"))
     assert replay["as_of"] == recorded["as_of"] == "2026-11-07T12:00:00Z"
     assert replay["findings"] == recorded["findings"]
+
+
+FORGED = "No findings in the supplied inputs."
+
+
+def reconcile_args(out: Path, profile: Path, expected: Path, collected: Path) -> list[str]:
+    return alias_run(out, profile, expected, collected)
+
+
+def test_a_profile_name_with_a_line_break_cannot_add_a_terminal_line(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAK-3: the reviewer's reproduction. A name is one line, however it is written."""
+    profile = write(
+        "p.toml",
+        MINIMAL_PROFILE.replace('name = "test"', f'name = "test\\n{FORGED}\\r\\n\\tx"'),
+    )
+    expected = write("e.csv", "id\n1\n")
+    collected = write("c.csv", "uid\n2\n")
+    assert main(reconcile_args(tmp_path / "o", profile, expected, collected)) == ExitCode.FINDINGS
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert lines[0] == f"pakad {__version__}: test\\n{FORGED}\\r\\n\\tx"
+    assert FORGED not in lines
+    assert all(not line.startswith(FORGED) for line in lines)
+    # The fixed layout is unchanged: header, three counts, a blank line, then the headline.
+    assert [line.split()[0] for line in lines[1:4]] == ["expected", "collected", "matched"]
+    assert lines[4] == ""
+    assert "Reports:" in lines
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not allow line breaks in names")
+def test_file_and_directory_names_with_line_breaks_stay_on_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = tmp_path / "p.toml"
+    profile.write_text(MINIMAL_PROFILE, encoding="utf-8")
+    expected = tmp_path / f"e\n{FORGED}.csv"
+    expected.write_text("id\n1\n", encoding="utf-8")
+    collected = tmp_path / "c\r\nx.csv"
+    collected.write_text("uid\n2\n", encoding="utf-8")
+    out = tmp_path / f"o\n{FORGED}"
+    assert main(reconcile_args(out, profile, expected, collected)) == ExitCode.FINDINGS
+    lines = capsys.readouterr().out.splitlines()
+    assert FORGED not in lines
+    assert not any(line.strip().startswith(FORGED) for line in lines)
+    assert any(f"e\\n{FORGED}.csv" in line for line in lines if line.startswith("  expected"))
+    assert any("c\\r\\nx.csv" in line for line in lines if line.startswith("  collected"))
+    reports = lines[lines.index("Reports:") + 1 :]
+    assert len(reports) == 5
+    assert all(line.startswith("  ") and "\\n" in line for line in reports)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not allow line breaks in names")
+def test_check_profile_and_example_keep_a_path_with_a_line_break_on_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / f"d\n{FORGED}"
+    assert main(["example", str(target)]) == ExitCode.OK
+    assert main(["check-profile", str(target / "profile.toml")]) == ExitCode.OK
+    lines = capsys.readouterr().out.splitlines()
+    assert FORGED not in lines
+    assert not any(line.startswith(FORGED) for line in lines)
+    assert lines[0].startswith("Wrote a synthetic example to ")
+    assert lines[1] == ""
+    assert lines[2].startswith("  pakad reconcile ")
+    assert lines[3].startswith(str(tmp_path).replace("\\", "\\\\"))
+    assert len(lines) == 4
+
+
+def test_an_error_message_with_a_line_break_in_a_header_stays_on_one_line(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = write("p.toml", MINIMAL_PROFILE)
+    expected = write("e.csv", "id\n1\n")
+    collected = tmp_path / "c.csv"
+    collected.write_text(f'"other\n{FORGED}"\n1\n', encoding="utf-8", newline="")
+    assert (
+        main(reconcile_args(tmp_path / "o", profile, expected, collected)) == ExitCode.INPUT_ERROR
+    )
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert f"other\\n{FORGED}" in err
+
+
+def test_an_internal_error_message_with_line_breaks_stays_on_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*_: object, **__: object) -> None:
+        msg = f"first\n{FORGED}\r\nthird"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("faithful_pakad.cli.reconcile", boom)
+    assert main(example_args(tmp_path)) == ExitCode.INTERNAL_ERROR
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0] == f"pakad: internal error: RuntimeError: first\\n{FORGED}\\r\\nthird"
+    assert lines[1].startswith("This is a bug.")
+    assert len(lines) == 2

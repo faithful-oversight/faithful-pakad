@@ -22,7 +22,13 @@ from faithful_pakad.model import KIND_ORDER, Kind
 from faithful_pakad.normalize import count
 from faithful_pakad.outputs import MANIFEST_SCHEMA_ID, MANIFEST_SCHEMA_VERSION, format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
-from faithful_pakad.outputs.safety import csv_cell, escape_markdown, terminal, visible
+from faithful_pakad.outputs.safety import (
+    csv_cell,
+    escape_markdown,
+    terminal,
+    terminal_line,
+    visible,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -478,14 +484,21 @@ def render_all(report: Report, formats: list[str]) -> dict[str, str]:
 
 
 def terminal_summary(report: Report) -> str:
-    """Plain-text summary for the terminal."""
+    """Plain-text summary for the terminal.
+
+    Every name that came from a file or a profile is made single-line before it
+    is placed into the layout, so no name can add a line of its own.
+    """
     s: dict[str, Any] = report["summary"]
     inputs = report["inputs"]
+    name = terminal_line(report["profile"]["name"])
+    expected_file = terminal_line(inputs["expected"]["file"])
+    collected_file = terminal_line(inputs["collected"]["file"])
     _, headline = _status(report)
     lines = [
-        f"pakad {report['tool']['version']}: {report['profile']['name']}",
-        f"  expected   {s['expected_records']:>7} records  {inputs['expected']['file']}",
-        f"  collected  {s['collected_records']:>7} records  {inputs['collected']['file']}",
+        f"pakad {report['tool']['version']}: {name}",
+        f"  expected   {s['expected_records']:>7} records  {expected_file}",
+        f"  collected  {s['collected_records']:>7} records  {collected_file}",
         f"  matched    {s['matched_keys']:>7} keys",
         "",
         f"{headline}.",
