@@ -5,9 +5,9 @@
     "name": "pakad",
     "version": "0.1.2"
   },
-  "run_id": "badf862b0de34c4487ef164d96ded36d",
-  "generated_at": "2026-11-15T05:07:54+00:00",
-  "as_of": "2026-11-07T12:00:00+00:00",
+  "run_id": "73174f3b8e7e4ecfa368e4425409a733",
+  "generated_at": "2026-11-19T03:47:30Z",
+  "as_of": "2026-11-07T12:00:00Z",
   "profile": {
     "name": "HR roster vs directory export",
     "file": "profile.toml",
@@ -244,7 +244,7 @@
       ],
       "details": {
         "column": "collectedAt",
-        "captured_at": "2026-11-04T06:00:00+00:00",
+        "captured_at": "2026-11-04T06:00:00Z",
         "max_age_hours": "24"
       }
     },

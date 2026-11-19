@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from faithful_pakad import __version__
 from faithful_pakad.model import KIND_ORDER, Severity
+from faithful_pakad.reconcile import format_instant
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -52,9 +53,9 @@ def build_report(  # noqa: PLR0913 - each argument is a distinct part of the rep
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "pakad", "version": __version__},
         "run_id": run_id,
-        "generated_at": generated_at.isoformat(timespec="seconds"),
+        "generated_at": format_instant(generated_at, timespec="seconds"),
         # Full precision, so replaying with --as-of reproduces the same findings.
-        "as_of": as_of.isoformat(),
+        "as_of": format_instant(as_of),
         "profile": {"name": profile.name, "file": profile.file, "sha256": profile.sha256},
         "inputs": {"expected": _input(expected), "collected": _input(collected)},
         "summary": {

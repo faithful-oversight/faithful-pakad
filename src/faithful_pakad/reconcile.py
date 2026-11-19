@@ -49,11 +49,16 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
 
     Raises:
         InputError: A column named in the profile is not in an input.
-        ValueError: ``as_of`` is not timezone-aware.
+        ValueError: ``as_of`` is not timezone-aware, or is outside years 1 to 9999 in UTC.
     """
     if as_of.tzinfo is None:
         msg = "as_of must be timezone-aware"
         raise ValueError(msg)
+    try:
+        as_of = as_of.astimezone(UTC)
+    except OverflowError as exc:
+        msg = "as_of is outside years 1 to 9999 once converted to UTC"
+        raise ValueError(msg) from exc
     _require_columns(expected, _expected_columns(profile))
     _require_columns(collected, _collected_columns(profile))
 
@@ -364,12 +369,12 @@ def _freshness(
                 refs=(record.ref,),
                 details={"column": column, "value": _show(raw)},
             )
-        elif when > as_of + FUTURE_TOLERANCE:
+        elif when - as_of > FUTURE_TOLERANCE:
             yield Finding(
                 kind=Kind.INVALID_TIMESTAMP,
                 message=f"Capture time in {column} is later than the reference time.",
                 refs=(record.ref,),
-                details={"column": column, "value": _show(raw), "as_of": as_of.isoformat()},
+                details={"column": column, "value": _show(raw), "as_of": format_instant(as_of)},
             )
         elif as_of - when > limit:
             yield Finding(
@@ -378,7 +383,7 @@ def _freshness(
                 refs=(record.ref,),
                 details={
                     "column": column,
-                    "captured_at": when.isoformat(),
+                    "captured_at": format_instant(when),
                     "max_age_hours": _hours(spec.max_age_hours),
                 },
             )
@@ -397,11 +402,27 @@ def _age(delta: timedelta) -> str:
     return f"{hours / 24:,.1f} days"
 
 
-def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
-    """Parse an ISO 8601 timestamp.
+def format_instant(when: datetime, *, timespec: str = "auto") -> str:
+    """Return a time zone aware instant as RFC 3339 text in UTC, ending in ``Z``.
 
-    Returns ``None`` when the value is absent or invalid, or when it has no time
-    zone and ``assume_utc`` is false.
+    Every time pakad writes into a report goes through here, so an accepted form
+    that is not valid RFC 3339 (an offset with seconds, a basic-format date) can
+    never reach the output. Fractions of a second are kept when there are any.
+
+    Raises:
+        OverflowError: The instant is outside years 1 to 9999 once in UTC.
+    """
+    utc = when.astimezone(UTC)
+    return utc.isoformat(timespec=timespec).removesuffix("+00:00") + "Z"
+
+
+def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
+    """Parse an ISO 8601 timestamp and return it in UTC.
+
+    Returns ``None`` when the value is absent or invalid, when it has no time
+    zone and ``assume_utc`` is false, or when it falls outside years 1 to 9999
+    once converted to UTC. The last case is reported like any other unusable
+    value, so a bound never turns into a crash.
     """
     if value is None:
         return None
@@ -414,7 +435,10 @@ def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
         return None
     if when.tzinfo is None:
         return when.replace(tzinfo=UTC) if assume_utc else None
-    return when
+    try:
+        return when.astimezone(UTC)
+    except OverflowError:
+        return None
 
 
 def _truncation(

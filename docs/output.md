@@ -11,7 +11,7 @@ Every run produces one report document, and every output format is rendered from
 | Findings | Each discrepancy, grouped by kind, with a plain-language explanation and a next step. |
 | Evidence | The SHA-256 hash of each input and of the profile, the rules applied, and how to verify the hashes. |
 
-The report also records the reference time used for freshness checks, the time it was generated, and the pakad version.
+The report also records the reference time used for freshness checks, the time it was generated, and the pakad version. Both times are written in UTC as RFC 3339 text ending in `Z`, for example `2026-11-07T12:00:00Z`, whatever form `--as-of` was given in (an offset such as `+05:30` or `+00:00:30` is converted, and a fraction of a second is kept). The same form is used for the capture time shown in a stale record's details.
 
 ## Finding kinds
 
@@ -89,7 +89,7 @@ Every run also writes `pakad-manifest.json`, after every other file. It records 
   "schema_version": "1.0",
   "tool": {"name": "pakad", "version": "0.1.2"},
   "run_id": "4f3c1e0a9b7d4c2e8f6a5b3c1d0e9f8a",
-  "generated_at": "2026-11-07T12:00:00+00:00",
+  "generated_at": "2026-11-07T12:00:00Z",
   "files": [
     {
       "name": "pakad-findings.csv",

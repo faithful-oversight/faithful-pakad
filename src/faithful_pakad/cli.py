@@ -62,7 +62,10 @@ SCHEMAS = {
 
 def _timestamp(text: str) -> datetime:
     if parse_timestamp(text, assume_utc=True) is None:
-        msg = f"not an ISO 8601 timestamp: {text!r}"
+        msg = (
+            "not an ISO 8601 timestamp that fits between 0001-01-01 and 9999-12-31 in UTC: "
+            f"{text!r}"
+        )
         raise argparse.ArgumentTypeError(msg)
     when = parse_timestamp(text, assume_utc=False)
     if when is None:

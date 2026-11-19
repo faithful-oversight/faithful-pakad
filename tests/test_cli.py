@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import jsonschema
 import pytest
 
 from faithful_pakad import __version__
@@ -25,6 +26,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 AS_OF = "2026-11-07T12:00:00Z"
+REPORT_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/report-v1.schema.json"
+    ).read_text(encoding="utf-8")
+)
+MANIFEST_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/manifest-v1.schema.json"
+    ).read_text(encoding="utf-8")
+)
 SAMPLE_DIR = EXAMPLE_DIR / "sample-report"
 NO_BREAK_SPACE = chr(0xA0)
 
@@ -349,7 +360,7 @@ def test_recorded_reference_time_reproduces_the_findings(
     first = tmp_path / "first"
     assert main([*base, "-o", str(first), "--as-of", "2026-11-07T12:00:00.6Z"]) == 1
     report = json.loads((first / "pakad-report.json").read_text())
-    assert report["as_of"] == "2026-11-07T12:00:00.600000+00:00"
+    assert report["as_of"] == "2026-11-07T12:00:00.600000Z"
     again = tmp_path / "again"
     assert main([*base, "-o", str(again), "--as-of", report["as_of"]]) == 1
     replay = json.loads((again / "pakad-report.json").read_text())
@@ -905,3 +916,80 @@ def test_an_input_that_is_a_hard_link_to_a_report_target_is_refused(
     assert "would be overwritten" in capsys.readouterr().err
     assert real.read_bytes() == b"id\n1\n"
     assert target.read_bytes() == b"id\n1\n"
+
+
+ACCEPTED_REFERENCE_TIMES = [
+    ("2026-11-14T12:00:00Z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00+00:00", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00-00:00", "2026-11-14T12:00:00Z"),
+    # The reviewer's case: an offset with seconds is not RFC 3339 and must not reach the report.
+    ("2026-11-14T12:00:00+00:00:30", "2026-11-14T11:59:30Z"),
+    ("2026-11-14T12:00:00-00:00:45", "2026-11-14T12:00:45Z"),
+    ("2026-11-14T12:00:00+0530", "2026-11-14T06:30:00Z"),
+    ("2026-11-14T12:00:00+05", "2026-11-14T07:00:00Z"),
+    ("2026-11-14T12:00:00.5-08:00", "2026-11-14T20:00:00.500000Z"),
+    ("2026-11-14T12:00:00,25+01:00", "2026-11-14T11:00:00.250000Z"),
+    ("20261114T120000Z", "2026-11-14T12:00:00Z"),
+    ("2026-W46-6T12:00:00Z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12Z", "2026-11-14T12:00:00Z"),
+    ("0001-01-01T00:00:00Z", "0001-01-01T00:00:00Z"),
+    ("9999-12-31T23:59:59.999999Z", "9999-12-31T23:59:59.999999Z"),
+]
+
+
+@pytest.mark.parametrize(("given", "recorded"), ACCEPTED_REFERENCE_TIMES)
+def test_every_accepted_reference_time_is_recorded_as_a_valid_utc_instant(
+    tmp_path: Path, given: str, recorded: str
+) -> None:
+    """PAK-2: whatever --as-of form is accepted, every output validates against its schema."""
+    out = tmp_path / "out"
+    args = example_args(out)
+    args[args.index("--as-of") + 1] = given
+    assert main(args) == ExitCode.FINDINGS
+    report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+    manifest = json.loads((out / "pakad-manifest.json").read_text(encoding="utf-8"))
+    jsonschema.validate(report, REPORT_SCHEMA, format_checker=jsonschema.FormatChecker())
+    jsonschema.validate(manifest, MANIFEST_SCHEMA, format_checker=jsonschema.FormatChecker())
+    assert report["as_of"] == recorded
+    assert report["generated_at"].endswith("Z")
+    assert manifest["generated_at"] == report["generated_at"]
+    # The text reports show the same recorded instant.
+    assert recorded in (out / "pakad-report.md").read_text(encoding="utf-8")
+    assert recorded in (out / "pakad-report.html").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "0001-01-01T00:00:00+05:00",
+        "9999-12-31T23:59:59-05:00",
+        "9999-12-31T23:59:59.999999-00:00:01",
+    ],
+)
+def test_a_reference_time_that_leaves_the_supported_range_in_utc_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], given: str
+) -> None:
+    args = example_args(tmp_path / "out")
+    args[args.index("--as-of") + 1] = given
+    assert main(args) == ExitCode.USAGE
+    assert "not an ISO 8601 timestamp that fits" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_recorded_reference_time_replays_the_same_findings_in_any_accepted_form(
+    tmp_path: Path,
+) -> None:
+    """The normalized as_of in a report is itself an accepted --as-of that gives the same result."""
+    first = tmp_path / "first"
+    args = example_args(first)
+    args[args.index("--as-of") + 1] = "2026-11-07T17:30:00+05:30"
+    assert main(args) == ExitCode.FINDINGS
+    recorded = json.loads((first / "pakad-report.json").read_text(encoding="utf-8"))
+    second = tmp_path / "second"
+    args = example_args(second)
+    args[args.index("--as-of") + 1] = recorded["as_of"]
+    assert main(args) == ExitCode.FINDINGS
+    replay = json.loads((second / "pakad-report.json").read_text(encoding="utf-8"))
+    assert replay["as_of"] == recorded["as_of"] == "2026-11-07T12:00:00Z"
+    assert replay["findings"] == recorded["findings"]

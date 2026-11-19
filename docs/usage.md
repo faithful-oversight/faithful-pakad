@@ -27,7 +27,7 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 | `-c`, `--collected` | The export that was collected. CSV or JSON. |
 | `-o`, `--out-dir` | Directory for the reports. Created if needed. |
 | `-f`, `--format` | Comma-separated list of `html`, `json`, `csv`, `md`. Default: all four. |
-| `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. Default: now. |
+| `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. It is recorded in the reports in UTC, ending in `Z`. A time that falls outside years 1 to 9999 once converted to UTC is refused. Default: now. |
 | `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. `error` ignores warnings, including `empty-input` for a single empty input. Two empty inputs (`nothing-reconciled`) and an incomplete export (`incomplete-export`) are errors, so they exit 1 under `any` and `error`; only `never` exits 0. |
 | `--max-bytes` | Refuse input files larger than this many bytes. Default: 268435456 (256 MiB). |
 | `--force` | Overwrite report files that already exist. Without it, pakad refuses. Even with it, pakad refuses to overwrite one of its own inputs (see below). |

@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from importlib.resources import files
 
 import jsonschema
@@ -19,7 +19,7 @@ from faithful_pakad.errors import InputError
 from faithful_pakad.model import Finding, Kind, Record, Result, Side, SourceRef, Table
 from faithful_pakad.outputs import build_report
 from faithful_pakad.profile import parse_profile
-from faithful_pakad.reconcile import parse_timestamp, reconcile
+from faithful_pakad.reconcile import format_instant, parse_timestamp, reconcile
 from tests.conftest import MINIMAL_PROFILE
 
 AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
@@ -39,7 +39,7 @@ def table(side: Side, rows: Rows, columns: tuple[str, ...] = ()) -> Table:
     return Table(side, f"{side}.csv", "0" * 64, 0, cols, records)
 
 
-def run(profile_text: str, expected: Rows, collected: Rows) -> Result:
+def run(profile_text: str, expected: Rows, collected: Rows, *, as_of: datetime = AS_OF) -> Result:
     profile = parse_profile(profile_text)
     exp = table(
         Side.EXPECTED, expected, (*profile.expected.key, *(c.expected for c in profile.compare))
@@ -49,7 +49,7 @@ def run(profile_text: str, expected: Rows, collected: Rows) -> Result:
         c for c in (profile.collection.source_column, profile.collection.captured_at_column) if c
     ]
     col = table(Side.COLLECTED, collected, tuple(dict.fromkeys(col_columns)))
-    return reconcile(profile, exp, col, as_of=AS_OF)
+    return reconcile(profile, exp, col, as_of=as_of)
 
 
 def kinds(result: Result) -> list[Kind]:
@@ -474,3 +474,84 @@ def test_freshness_boundaries(offset_hours: float, kind: Kind | None) -> None:
     captured = (AS_OF - timedelta(hours=offset_hours)).isoformat()
     result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": captured}])
     assert kinds(result) == ([kind] if kind else [])
+
+
+LATEST = datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
+EARLIEST = datetime(1, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("as_of", "captured", "kind"),
+    [
+        # PAK-6: the reviewer's case, the latest instant there is.
+        (LATEST, "9999-12-31T23:59:59Z", None),
+        (LATEST, "9999-12-31T23:59:59.999999Z", None),
+        (LATEST, "9999-12-31T00:00:00Z", None),
+        (LATEST, "9999-12-31T23:58:00Z", None),
+        (LATEST, "9999-12-30T23:59:59Z", Kind.STALE_RECORD),
+        (LATEST, "9999-12-31T23:59:59-05:00", Kind.INVALID_TIMESTAMP),  # not representable in UTC
+        (EARLIEST, "0001-01-01T00:00:00Z", None),
+        (EARLIEST, "0001-01-01T00:04:59Z", None),  # inside the five minute tolerance
+        (EARLIEST, "0001-01-01T00:05:01Z", Kind.INVALID_TIMESTAMP),
+        (EARLIEST, "0001-01-01T00:00:00+05:00", Kind.INVALID_TIMESTAMP),  # not representable
+        (datetime(2026, 11, 7, 12, tzinfo=UTC), "2026-11-07T17:30:00+05:30", None),
+        (
+            datetime(2026, 11, 7, 12, tzinfo=UTC),
+            "2026-11-07T17:36:00+05:30",
+            Kind.INVALID_TIMESTAMP,
+        ),
+        (
+            datetime(2026, 11, 7, 17, 30, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+            "2026-11-07T12:00:00Z",
+            None,
+        ),
+    ],
+)
+def test_freshness_at_the_ends_of_the_calendar_and_across_offsets(
+    as_of: datetime, captured: str, kind: Kind | None
+) -> None:
+    """PAK-6: comparing times never adds to them, so no accepted instant can overflow."""
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": captured}], as_of=as_of)
+    assert kinds(result) == ([kind] if kind else [])
+
+
+def test_parse_timestamp_returns_utc_and_refuses_what_cannot_be_put_in_utc() -> None:
+    parsed = parse_timestamp("2026-11-14T12:00:00+00:00:30", assume_utc=False)
+    assert parsed == datetime(2026, 11, 14, 11, 59, 30, tzinfo=UTC)
+    assert parsed is not None
+    assert parsed.utcoffset() == timedelta(0)
+    assert parse_timestamp("9999-12-31T23:59:59-05:00", assume_utc=False) is None
+    assert parse_timestamp("0001-01-01T00:00:00+05:00", assume_utc=True) is None
+
+
+def test_format_instant_is_utc_rfc_3339() -> None:
+    assert format_instant(datetime(2026, 11, 14, 12, tzinfo=UTC)) == "2026-11-14T12:00:00Z"
+    assert (
+        format_instant(
+            datetime(2026, 11, 14, 12, 0, 0, 500000, tzinfo=timezone(timedelta(hours=-8)))
+        )
+        == "2026-11-14T20:00:00.500000Z"
+    )
+    assert (
+        format_instant(datetime(2026, 11, 14, 12, tzinfo=UTC), timespec="seconds")
+        == "2026-11-14T12:00:00Z"
+    )
+    with pytest.raises(OverflowError):
+        format_instant(datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-5))))
+
+
+def test_as_of_outside_the_calendar_in_utc_is_refused() -> None:
+    profile = parse_profile(MINIMAL_PROFILE)
+    offset = timezone(timedelta(hours=-5))
+    with pytest.raises(ValueError, match="outside years 1 to 9999"):
+        reconcile(
+            profile,
+            table(Side.EXPECTED, []),
+            table(Side.COLLECTED, []),
+            as_of=datetime(9999, 12, 31, 23, tzinfo=offset),
+        )
+
+
+def test_the_stale_record_details_use_the_same_utc_form_as_the_report() -> None:
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2026-11-01T12:00:00+05:30"}])
+    assert only(result, Kind.STALE_RECORD).details["captured_at"] == "2026-11-01T06:30:00Z"
