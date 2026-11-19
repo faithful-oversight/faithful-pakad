@@ -791,7 +791,7 @@ def test_a_report_target_that_is_an_input_is_refused_even_with_force(
         "collected": tmp_path / "c.csv",
     }
     sources["profile"].write_text(PROFILE_TEXT, encoding="utf-8")
-    sources["expected"].write_text("id\n1\n", encoding="utf-8")
+    sources["expected"].write_bytes(b"id\n1\n")
     sources["collected"].write_text("uid\n1\n", encoding="utf-8")
     sources[side] = out / name
     sources[side].write_bytes(
@@ -813,7 +813,7 @@ def test_the_reviewers_reproduction_leaves_the_expected_file_alone(
     profile = tmp_path / "p.toml"
     profile.write_text(PROFILE_TEXT, encoding="utf-8")
     expected = tmp_path / "pakad-findings.csv"
-    expected.write_text("id\n1\n", encoding="utf-8")
+    expected.write_bytes(b"id\n1\n")
     collected = tmp_path / "c.csv"
     collected.write_text("uid\n1\n", encoding="utf-8")
     args = alias_run(tmp_path, profile, expected, collected, "--force")
@@ -828,7 +828,7 @@ def test_only_the_selected_outputs_are_protected(tmp_path: Path) -> None:
     profile = tmp_path / "p.toml"
     profile.write_text(PROFILE_TEXT, encoding="utf-8")
     expected = tmp_path / "pakad-findings.csv"
-    expected.write_text("id\n1\n", encoding="utf-8")
+    expected.write_bytes(b"id\n1\n")
     collected = tmp_path / "c.csv"
     collected.write_text("uid\n1\n", encoding="utf-8")
     args = alias_run(tmp_path, profile, expected, collected, "-f", "json", "--force")
@@ -844,7 +844,7 @@ def _inputs_in(tmp_path: Path) -> tuple[Path, Path, Path]:
     collected.write_text("uid\n1\n", encoding="utf-8")
     expected = tmp_path / "keep" / "e.csv"
     expected.parent.mkdir()
-    expected.write_text("id\n1\n", encoding="utf-8")
+    expected.write_bytes(b"id\n1\n")
     return profile, expected, collected
 
 
@@ -890,7 +890,7 @@ def test_an_output_directory_reached_through_a_symlink_is_still_checked(
     real_dir = tmp_path / "real"
     real_dir.mkdir()
     expected = real_dir / "pakad-findings.csv"
-    expected.write_text("id\n1\n", encoding="utf-8")
+    expected.write_bytes(b"id\n1\n")
     alias_dir = tmp_path / "alias"
     alias_dir.symlink_to(real_dir, target_is_directory=True)
     args = alias_run(alias_dir, profile, expected, collected, "--force")
@@ -1031,7 +1031,7 @@ def test_file_and_directory_names_with_line_breaks_stay_on_one_line(
     profile = tmp_path / "p.toml"
     profile.write_text(MINIMAL_PROFILE, encoding="utf-8")
     expected = tmp_path / f"e\n{FORGED}.csv"
-    expected.write_text("id\n1\n", encoding="utf-8")
+    expected.write_bytes(b"id\n1\n")
     collected = tmp_path / "c\r\nx.csv"
     collected.write_text("uid\n2\n", encoding="utf-8")
     out = tmp_path / f"o\n{FORGED}"
