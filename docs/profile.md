@@ -2,7 +2,7 @@
 
 A profile is a [TOML](https://toml.io/) file that tells pakad how to read the two inputs, how to match records, and which checks to run. Print a commented starting point with `pakad example-profile`.
 
-Validation is strict. A setting pakad does not recognize is an error, so a typo can never silently switch a check off. Check a profile with `pakad check-profile`.
+Validation is strict. A setting pakad does not recognize is an error, so a typo can never silently switch a check off. Check a profile with `pakad check-profile`. A profile must be a regular file of at most 1 MiB; a pipe or device is refused.
 
 ## Complete example
 
