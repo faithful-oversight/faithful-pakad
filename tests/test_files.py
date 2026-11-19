@@ -12,7 +12,7 @@ from typing import IO, TYPE_CHECKING, Any
 import pytest
 
 from faithful_pakad.errors import PakadError
-from faithful_pakad.outputs.files import write_files
+from faithful_pakad.outputs.files import refuse_input_overwrite, write_files
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -159,3 +159,25 @@ def test_a_permission_error_while_checking_targets_is_an_input_error(
         write_files(tmp_path / "out", {"a.txt": "x"}, force=False)
     monkeypatch.undo()
     assert not (tmp_path / "out").exists() or not list((tmp_path / "out").iterdir())
+
+
+def test_a_comparison_that_cannot_be_made_refuses_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When pakad cannot tell whether a report name is an input, it stops (exit 3), not guesses."""
+    source = tmp_path / "e.csv"
+    source.write_text("id\n", encoding="utf-8")
+
+    def refuse(self: Path, _other: object) -> bool:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "samefile", refuse)
+    with pytest.raises(PakadError, match=r"cannot compare the inputs .*: Permission denied"):
+        refuse_input_overwrite({"expected input": source}, tmp_path, ["a.txt"])
+
+
+def test_an_output_directory_under_a_file_is_not_an_alias(tmp_path: Path) -> None:
+    source = tmp_path / "e.csv"
+    source.write_text("id\n", encoding="utf-8")
+    refuse_input_overwrite({"expected input": source}, source / "sub", ["a.txt"])
+    refuse_input_overwrite({"expected input": tmp_path / "absent.csv"}, tmp_path, ["a.txt"])
