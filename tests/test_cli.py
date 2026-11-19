@@ -738,3 +738,170 @@ def test_an_empty_json_export_is_an_empty_input_not_a_profile_problem(
     report = json.loads((tmp_path / "pakad-report.json").read_text(encoding="utf-8"))
     assert sorted(f["kind"] for f in report["findings"]) == ["empty-input", "missing"]
     assert "missing 1 column" not in capsys.readouterr().err
+
+
+PROFILE_TEXT = MINIMAL_PROFILE
+REPORT_NAMES = (
+    "pakad-report.html",
+    "pakad-report.json",
+    "pakad-findings.csv",
+    "pakad-report.md",
+    "pakad-manifest.json",
+)
+
+
+def alias_run(out: Path, profile: Path, expected: Path, collected: Path, *extra: str) -> list[str]:
+    return [
+        "reconcile",
+        "-p",
+        str(profile),
+        "-e",
+        str(expected),
+        "-c",
+        str(collected),
+        "-o",
+        str(out),
+        *extra,
+    ]
+
+
+@pytest.mark.parametrize("name", REPORT_NAMES)
+@pytest.mark.parametrize("side", ["profile", "expected", "collected"])
+@pytest.mark.parametrize("force", [False, True])
+def test_a_report_target_that_is_an_input_is_refused_even_with_force(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str, side: str, *, force: bool
+) -> None:
+    """PAK-1: --force must never replace a source with a generated report."""
+    out = tmp_path / "out"
+    out.mkdir()
+    sources = {
+        "profile": tmp_path / "p.toml",
+        "expected": tmp_path / "e.csv",
+        "collected": tmp_path / "c.csv",
+    }
+    sources["profile"].write_text(PROFILE_TEXT, encoding="utf-8")
+    sources["expected"].write_text("id\n1\n", encoding="utf-8")
+    sources["collected"].write_text("uid\n1\n", encoding="utf-8")
+    sources[side] = out / name
+    sources[side].write_bytes(
+        {"profile": PROFILE_TEXT, "expected": "id\n1\n", "collected": "uid\n1\n"}[side].encode()
+    )
+    before = {path: path.read_bytes() for path in sources.values()}
+    args = alias_run(out, sources["profile"], sources["expected"], sources["collected"])
+    assert main([*args, *(["--force"] if force else [])]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "would be overwritten by the report file" in err
+    assert side in err.split("overwritten")[0]
+    assert {path: path.read_bytes() for path in sources.values()} == before
+    assert sorted(p.name for p in out.iterdir()) == [name]
+
+
+def test_the_reviewers_reproduction_leaves_the_expected_file_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    expected = tmp_path / "pakad-findings.csv"
+    expected.write_text("id\n1\n", encoding="utf-8")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    args = alias_run(tmp_path, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert expected.read_bytes() == b"id\n1\n"
+    assert "expected input" in capsys.readouterr().err
+    assert not (tmp_path / "pakad-manifest.json").exists()
+
+
+def test_only_the_selected_outputs_are_protected(tmp_path: Path) -> None:
+    """An input named like a report that is not selected is not in the way."""
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    expected = tmp_path / "pakad-findings.csv"
+    expected.write_text("id\n1\n", encoding="utf-8")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    args = alias_run(tmp_path, profile, expected, collected, "-f", "json", "--force")
+    assert main(args) in (ExitCode.OK, ExitCode.FINDINGS)
+    assert (tmp_path / "pakad-report.json").exists()
+    assert expected.read_bytes() == b"id\n1\n"
+
+
+def _inputs_in(tmp_path: Path) -> tuple[Path, Path, Path]:
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    expected = tmp_path / "keep" / "e.csv"
+    expected.parent.mkdir()
+    expected.write_text("id\n1\n", encoding="utf-8")
+    return profile, expected, collected
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+@pytest.mark.parametrize("force", [False, True])
+def test_an_input_that_is_a_symlink_to_a_report_target_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], *, force: bool
+) -> None:
+    profile, real, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    real_target = out / "pakad-findings.csv"
+    real_target.write_bytes(real.read_bytes())
+    link = tmp_path / "link.csv"
+    link.symlink_to(real_target)
+    args = alias_run(out, profile, link, collected, *(["--force"] if force else []))
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert real_target.read_bytes() == b"id\n1\n"
+    assert link.is_symlink()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+def test_a_report_target_that_is_a_symlink_to_an_input_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile, expected, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "pakad-report.json").symlink_to(expected)
+    args = alias_run(out, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert expected.read_bytes() == b"id\n1\n"
+    assert (out / "pakad-report.json").is_symlink()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+def test_an_output_directory_reached_through_a_symlink_is_still_checked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile, _, collected = _inputs_in(tmp_path)
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    expected = real_dir / "pakad-findings.csv"
+    expected.write_text("id\n1\n", encoding="utf-8")
+    alias_dir = tmp_path / "alias"
+    alias_dir.symlink_to(real_dir, target_is_directory=True)
+    args = alias_run(alias_dir, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert expected.read_bytes() == b"id\n1\n"
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_an_input_that_is_a_hard_link_to_a_report_target_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], *, force: bool
+) -> None:
+    profile, real, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    target = out / "pakad-findings.csv"
+    try:
+        os.link(real, target)
+    except OSError:
+        pytest.skip("this file system has no hard links")
+    args = alias_run(out, profile, real, collected, *(["--force"] if force else []))
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert real.read_bytes() == b"id\n1\n"
+    assert target.read_bytes() == b"id\n1\n"

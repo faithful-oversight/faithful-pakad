@@ -35,6 +35,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The required "All checks passed" check now fails if a CI job is missing, and a skipped title or sign-off check no longer counts as a pass on a pull request.
 - `scripts/check.sh workflows` prints a clear message instead of a stack trace when GitHub rejects the token.
 - `SECURITY.md` no longer says that no release has been published. It says the latest release is supported.
+- `--force` can no longer replace your own input with a report. If a report or manifest name that a run is about to write is the profile, the expected input, or the collected input (the same file, a symbolic link to it, or a hard link to it), pakad now stops with an input error (exit 3) before reading or writing anything, and the source file is left exactly as it was. Previously, reusing one directory for inputs and reports (for example an expected file named `pakad-findings.csv`) with `--force` replaced the input.
 - On Windows, a closed pipe (reported there as an invalid-argument error rather than a broken pipe) also stops the printing and keeps the real exit code, instead of ending with an internal error or exit 120.
 
 ### Changed

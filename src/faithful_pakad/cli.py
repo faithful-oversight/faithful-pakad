@@ -21,8 +21,13 @@ from faithful_pakad import __version__
 from faithful_pakad.errors import PakadError
 from faithful_pakad.model import Severity, Side
 from faithful_pakad.outputs import build_report
-from faithful_pakad.outputs.files import write_files
-from faithful_pakad.outputs.render import RENDERERS, render_all, terminal_summary
+from faithful_pakad.outputs.files import refuse_input_overwrite, write_files
+from faithful_pakad.outputs.render import (
+    MANIFEST_NAME,
+    RENDERERS,
+    render_all,
+    terminal_summary,
+)
 from faithful_pakad.outputs.safety import terminal
 from faithful_pakad.profile import load_profile
 from faithful_pakad.readers import DEFAULT_MAX_BYTES, read_table
@@ -152,6 +157,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> int:
+    # Before anything is read or written: a report must never replace a source.
+    refuse_input_overwrite(
+        {
+            "profile": args.profile,
+            "expected input": args.expected,
+            "collected input": args.collected,
+        },
+        args.out_dir,
+        [RENDERERS[fmt][0] for fmt in args.format] + [MANIFEST_NAME],
+    )
     profile = load_profile(args.profile)
     expected = read_table(args.expected, profile.expected, Side.EXPECTED, max_bytes=args.max_bytes)
     collected = read_table(

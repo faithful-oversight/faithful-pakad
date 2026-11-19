@@ -30,7 +30,7 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 | `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. Default: now. |
 | `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. `error` ignores warnings, including `empty-input` for a single empty input. Two empty inputs (`nothing-reconciled`) and an incomplete export (`incomplete-export`) are errors, so they exit 1 under `any` and `error`; only `never` exits 0. |
 | `--max-bytes` | Refuse input files larger than this many bytes. Default: 268435456 (256 MiB). |
-| `--force` | Overwrite report files that already exist. Without it, pakad refuses. |
+| `--force` | Overwrite report files that already exist. Without it, pakad refuses. Even with it, pakad refuses to overwrite one of its own inputs (see below). |
 
 ### File formats
 
@@ -41,7 +41,7 @@ pakad picks the format from the file extension: `.csv`, `.tsv`, and `.txt` are r
 
 ### Report files
 
-pakad writes the reports you choose with `--format`, then `pakad-manifest.json`, into the output directory. Files are readable only by your user account on Linux and macOS. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set.
+pakad writes the reports you choose with `--format`, then `pakad-manifest.json`, into the output directory. Files are readable only by your user account on Linux and macOS. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set. Before it reads anything, pakad checks that none of the report or manifest names it is about to write is the profile, the expected input, or the collected input, whether by the same path, a symbolic link, or a hard link. If one is, it exits with an input error (3) and changes nothing, even with `--force`, because a source file must never be replaced by a generated report. An input that shares a name with a report you did not select with `--format` is not affected.
 
 Each file is complete before it appears, on file systems with hard links. On file systems without them, such as FAT and exFAT on many USB drives, each file is visible while pakad writes it, and pakad removes it again if writing fails. In both cases the manifest is written last, so its presence means every other file is in place.
 
