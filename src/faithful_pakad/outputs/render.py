@@ -13,22 +13,15 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import html
 import io
-import json
 from typing import TYPE_CHECKING, Any
 
+from faithful_core.render import CSP, html_text, json_dump, md_table, md_text, plural
+from faithful_core.safety import csv_cell, terminal, terminal_line
+
 from faithful_pakad.model import KIND_ORDER, Kind
-from faithful_pakad.normalize import count
 from faithful_pakad.outputs import MANIFEST_SCHEMA_ID, MANIFEST_SCHEMA_VERSION, format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
-from faithful_pakad.outputs.safety import (
-    csv_cell,
-    escape_markdown,
-    terminal,
-    terminal_line,
-    visible,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -106,14 +99,14 @@ def _status(report: Report) -> tuple[str, str]:
     if by_kind.get("nothing-reconciled"):
         return "fail", "Nothing was reconciled: both inputs are empty"
     if s["errors"]:
-        found = f"{count(s['errors'], 'error')} and {count(s['warnings'], 'warning')}"
+        found = f"{plural(s['errors'], 'error')} and {plural(s['warnings'], 'warning')}"
         if by_kind.get("incomplete-export"):
             return "fail", f"An input is incomplete (more pages exist). {found} need review"
         return "fail", f"{found} need review"
     if s["warnings"]:
-        return "warn", f"No errors. {count(s['warnings'], 'warning')} need review"
+        return "warn", f"No errors. {plural(s['warnings'], 'warning')} need review"
     if report["unknowns"]:
-        skipped = count(len(report["unknowns"]), "check")
+        skipped = plural(len(report["unknowns"]), "check")
         return "warn", f"No findings in the supplied inputs, but {skipped} did not run"
     return "pass", "No findings in the supplied inputs"
 
@@ -156,7 +149,7 @@ def _input_rows(report: Report) -> list[tuple[str, str, str, str, str]]:
 
 def render_json(report: Report) -> str:
     """Render the report as indented JSON that follows the published schema."""
-    return json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    return json_dump(report)
 
 
 def render_csv(report: Report) -> str:
@@ -182,29 +175,19 @@ def render_csv(report: Report) -> str:
 # Markdown ------------------------------------------------------------------------
 
 
-def _md_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    md = escape_markdown
-    return [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join("---" for _ in headers) + " |",
-        *("| " + " | ".join(md(c) for c in row) + " |" for row in rows),
-    ]
-
-
 def _md_findings(report: Report) -> list[str]:
-    md = escape_markdown
     lines: list[str] = []
     for kind, all_findings in _groups(report):
         guide = GUIDANCE[kind]
         findings, hidden = _shown(all_findings)
         lines += [
-            f"### {md(guide.title)} ({len(all_findings)})",
+            f"### {md_text(guide.title)} ({len(all_findings)})",
             "",
-            f"`{kind.value}`, {findings[0]['severity']}. {md(guide.meaning)}",
+            f"`{kind.value}`, {findings[0]['severity']}. {md_text(guide.meaning)}",
             "",
-            f"**What to do:** {md(guide.next_step)}",
+            f"**What to do:** {md_text(guide.next_step)}",
             "",
-            *_md_table(
+            *md_table(
                 ("ID", "Key", "Source", "Details"),
                 [
                     (
@@ -219,30 +202,30 @@ def _md_findings(report: Report) -> list[str]:
             "",
         ]
         if hidden:
-            lines += [f"*{md(_hidden_note(hidden))}*", ""]
+            lines += [f"*{md_text(_hidden_note(hidden))}*", ""]
     return lines or ["No findings.", ""]
 
 
 def render_markdown(report: Report) -> str:
     """Render the report as GitHub-flavored Markdown with every input value escaped."""
-    md = escape_markdown
     _, headline = _status(report)
-    unknowns = [f"- **{md(u['check'])}:** {md(u['reason'])}" for u in report["unknowns"]]
+    unknowns = [f"- **{md_text(u['check'])}:** {md_text(u['reason'])}" for u in report["unknowns"]]
     lines = [
-        f"# Reconciliation report: {md(report['profile']['name'])}",
+        f"# Reconciliation report: {md_text(report['profile']['name'])}",
         "",
-        f"**{md(headline)}.**",
+        f"**{md_text(headline)}.**",
         "",
         (
-            f"Reference time {md(report['as_of'])}. Generated {md(report['generated_at'])} "
-            f"by pakad {md(report['tool']['version'])}. Run ID `{md(report['run_id'])}`."
+            f"Reference time {md_text(report['as_of'])}. "
+            f"Generated {md_text(report['generated_at'])} "
+            f"by pakad {md_text(report['tool']['version'])}. Run ID `{md_text(report['run_id'])}`."
         ),
         "",
-        f"> {md(LIMIT_NOTE)}",
+        f"> {md_text(LIMIT_NOTE)}",
         "",
         "## Summary",
         "",
-        *_md_table(("Measure", "Value"), _summary_rows(report)),
+        *md_table(("Measure", "Value"), _summary_rows(report)),
         "",
         "## Not verified",
         "",
@@ -253,13 +236,13 @@ def render_markdown(report: Report) -> str:
         *_md_findings(report),
         "## Evidence",
         "",
-        *_md_table(("Input", "File", "Records", "Bytes", "SHA-256"), _input_rows(report)),
+        *md_table(("Input", "File", "Records", "Bytes", "SHA-256"), _input_rows(report)),
         "",
         "Rules applied:",
         "",
-        *(f"- {md(rule)}" for rule in report["rules"]),
+        *(f"- {md_text(rule)}" for rule in report["rules"]),
         "",
-        f"{md(VERIFY_NOTE)}",
+        f"{md_text(VERIFY_NOTE)}",
         "",
         *(f"- {name}: `{command}`" for name, command in VERIFY_COMMANDS),
         "",
@@ -311,9 +294,6 @@ summary{background:none}a{color:inherit;text-decoration:none}}
 """
 
 
-CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'"
-"""Content security policy: no scripts, no network access, no form submission."""
-
 NAV = "".join(
     f'<a href="#{anchor}">{label}</a>'
     for anchor, label in (
@@ -325,18 +305,16 @@ NAV = "".join(
 )
 
 
-def _h(value: object) -> str:
-    return html.escape(visible(str(value)), quote=True)
-
-
 def _html_table(
     headers: Sequence[str], rows: Sequence[Sequence[str]], code_column: int = -1
 ) -> str:
-    head = "".join(f'<th scope="col">{_h(h)}</th>' for h in headers)
+    head = "".join(f'<th scope="col">{html_text(h)}</th>' for h in headers)
     body = "".join(
         "<tr>"
         + "".join(
-            f"<td><code>{_h(v)}</code></td>" if i == code_column else f"<td>{_h(v)}</td>"
+            f"<td><code>{html_text(v)}</code></td>"
+            if i == code_column
+            else f"<td>{html_text(v)}</td>"
             for i, v in enumerate(row)
         )
         + "</tr>"
@@ -356,7 +334,7 @@ def _html_cards(report: Report) -> str:
         ("warn" if s["warnings"] else "", s["warnings"], "warnings"),
     ]
     items = "".join(
-        f'<div class="card {c}"><b>{_h(n)}</b><span>{_h(label)}</span></div>'
+        f'<div class="card {c}"><b>{html_text(n)}</b><span>{html_text(label)}</span></div>'
         for c, n, label in cards
     )
     return f'<div class="cards">{items}</div>'
@@ -368,16 +346,18 @@ def _html_findings(report: Report) -> str:
         guide = GUIDANCE[kind]
         findings, hidden = _shown(all_findings)
         severity = findings[0]["severity"]
-        note = f"<p><em>{_h(_hidden_note(hidden))}</em></p>" if hidden else ""
+        note = f"<p><em>{html_text(_hidden_note(hidden))}</em></p>" if hidden else ""
         rows = [
             (f["id"], _key_text(f["key"]), _refs_text(f["refs"]), _details_text(f["details"]))
             for f in findings
         ]
         groups.append(
-            f'<details open id="{_h(kind.value)}"><summary>{_h(guide.title)} '
-            f'<span class="pill {_h(severity)}">{len(all_findings)} {_h(severity)}</span></summary>'
-            f'<div class="group"><p>{_h(guide.meaning)} <code>{_h(kind.value)}</code></p>'
-            f"<p><strong>What to do:</strong> {_h(guide.next_step)}</p>"
+            f'<details open id="{html_text(kind.value)}"><summary>{html_text(guide.title)} '
+            f'<span class="pill {html_text(severity)}">{len(all_findings)} '
+            f"{html_text(severity)}</span></summary>"
+            f'<div class="group"><p>{html_text(guide.meaning)} '
+            f"<code>{html_text(kind.value)}</code></p>"
+            f"<p><strong>What to do:</strong> {html_text(guide.next_step)}</p>"
             f"{_html_table(('ID', 'Key', 'Source', 'Details'), rows)}{note}</div></details>"
         )
     return "".join(groups) or "<p>No findings.</p>"
@@ -393,9 +373,12 @@ def render_html(report: Report) -> str:
     status_class, headline = _status(report)
     name = report["profile"]["name"]
     unknowns = "".join(
-        f"<li><strong>{_h(u['check'])}:</strong> {_h(u['reason'])}</li>" for u in report["unknowns"]
+        f"<li><strong>{html_text(u['check'])}:</strong> {html_text(u['reason'])}</li>"
+        for u in report["unknowns"]
     )
-    verify = "".join(f"<li>{_h(n)}: <code>{_h(c)}</code></li>" for n, c in VERIFY_COMMANDS)
+    verify = "".join(
+        f"<li>{html_text(n)}: <code>{html_text(c)}</code></li>" for n, c in VERIFY_COMMANDS
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -403,22 +386,22 @@ def render_html(report: Report) -> str:
 <meta http-equiv="Content-Security-Policy" content="{CSP}">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="generator" content="pakad {_h(report["tool"]["version"])}">
-<title>Reconciliation report: {_h(name)}</title>
+<meta name="generator" content="pakad {html_text(report["tool"]["version"])}">
+<title>Reconciliation report: {html_text(name)}</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <main>
 <header>
-<h1>Reconciliation report: {_h(name)}</h1>
-<p>Reference time {_h(report["as_of"])} · Generated {_h(report["generated_at"])}
-· pakad {_h(report["tool"]["version"])}</p>
+<h1>Reconciliation report: {html_text(name)}</h1>
+<p>Reference time {html_text(report["as_of"])} · Generated {html_text(report["generated_at"])}
+· pakad {html_text(report["tool"]["version"])}</p>
 </header>
 <nav aria-label="Sections">{NAV}</nav>
-<p class="status {status_class}" role="status">{_h(headline)}.</p>
+<p class="status {status_class}" role="status">{html_text(headline)}.</p>
 <section id="summary" aria-labelledby="summary-h"><h2 id="summary-h">Summary</h2>
 {_html_cards(report)}
-<p class="note">{_h(LIMIT_NOTE)}</p></section>
+<p class="note">{html_text(LIMIT_NOTE)}</p></section>
 <section id="not-verified" aria-labelledby="nv-h"><h2 id="nv-h">Not verified</h2>
 {f"<ul>{unknowns}</ul>" if unknowns else "<p>Every configured check ran.</p>"}</section>
 <section id="findings" aria-labelledby="findings-h"><h2 id="findings-h">Findings</h2>
@@ -426,12 +409,12 @@ def render_html(report: Report) -> str:
 <section id="evidence" aria-labelledby="evidence-h"><h2 id="evidence-h">Evidence</h2>
 {_html_table(("Input", "File", "Records", "Bytes", "SHA-256"), _input_rows(report), code_column=4)}
 <h3>Rules applied</h3>
-<ul>{"".join(f"<li>{_h(r)}</li>" for r in report["rules"])}</ul>
+<ul>{"".join(f"<li>{html_text(r)}</li>" for r in report["rules"])}</ul>
 <h3>Verify the inputs</h3>
-<p>{_h(VERIFY_NOTE)}</p>
+<p>{html_text(VERIFY_NOTE)}</p>
 <ul>{verify}</ul></section>
-<footer>Run ID <code>{_h(report["run_id"])}</code>, shared by every file from this run.
-Report schema version {_h(report["schema_version"])}.
+<footer>Run ID <code>{html_text(report["run_id"])}</code>, shared by every file from this run.
+Report schema version {html_text(report["schema_version"])}.
 Produced by pakad, an open source tool from Faithful Oversight, LLC.</footer>
 </main>
 </body>
@@ -470,7 +453,7 @@ def render_manifest(report: Report, outputs: Mapping[str, str]) -> str:
         "generated_at": report["generated_at"],
         "files": files,
     }
-    return json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+    return json_dump(manifest)
 
 
 def render_all(report: Report, formats: list[str]) -> dict[str, str]:
@@ -508,5 +491,5 @@ def terminal_summary(report: Report) -> str:
         for kind, findings in _groups(report)
     ]
     if report["unknowns"]:
-        lines.append(f"{count(len(report['unknowns']), 'check')} not verified; see the report.")
+        lines.append(f"{plural(len(report['unknowns']), 'check')} not verified; see the report.")
     return terminal("\n".join(lines))

@@ -8,17 +8,20 @@ import csv
 import hashlib
 import io
 import json
+import tempfile
 from datetime import UTC, datetime
 from importlib.resources import files
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jsonschema
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
+from faithful_core.errors import FaithfulError, OutputError
+from faithful_core.safety import FORMULA_TRIGGERS
 
+from faithful_pakad.errors import InputError, PakadError, ProfileError
 from faithful_pakad.model import Finding, Kind, Result, Side, SourceRef, Table, Unknown
 from faithful_pakad.outputs import build_report, format_ref
+from faithful_pakad.outputs.files import write_files
 from faithful_pakad.outputs.guidance import GUIDANCE
 from faithful_pakad.outputs.render import (
     CSV_COLUMNS,
@@ -31,9 +34,11 @@ from faithful_pakad.outputs.render import (
     render_markdown,
     terminal_summary,
 )
-from faithful_pakad.outputs.safety import FORMULA_TRIGGERS, escape_markdown, neutralize_formula
 from faithful_pakad.profile import parse_profile
 from tests.conftest import MINIMAL_PROFILE
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
 CSV_HEADER = ("id", "kind", "severity", "key", "source", "message", "details", "run_id")
@@ -195,29 +200,6 @@ def test_format_ref_names_the_input() -> None:
     assert CSV_COLUMNS == CSV_HEADER
 
 
-@given(st.text())
-def test_formula_neutralization_is_safe_and_idempotent(value: str) -> None:
-    once = neutralize_formula(value)
-    assert not once.startswith(FORMULA_TRIGGERS)
-    assert neutralize_formula(once) == once
-    assert once.removeprefix("'") == value or once == value
-
-
-@given(st.text())
-def test_markdown_escape_never_leaves_raw_markup(value: str) -> None:
-    escaped = escape_markdown(value)
-    assert "\n" not in escaped
-    assert "\r" not in escaped
-    unescaped = escaped.replace("\\\\", "")
-    for char in "<>|`":
-        assert char not in unescaped.replace(f"\\{char}", "")
-
-
-@pytest.mark.parametrize("value", ["@SUM(A1)", "+1", "-1+1", "\t=x", "\uff1dcmd"])
-def test_known_formula_prefixes(value: str) -> None:
-    assert neutralize_formula(value) == "'" + value
-
-
 def test_unknowns_prevent_a_full_pass_headline() -> None:
     page = render_html(make_report((), (Unknown("source coverage", "Not checked."),)))
     assert "No findings in the supplied inputs, but 1 check did not run." in page
@@ -288,11 +270,25 @@ def test_invisible_characters_are_shown_not_hidden() -> None:
     assert "\x1b" not in terminal_summary(make_report((Finding(Kind.MISSING, INVISIBLE),)))
 
 
-def test_markdown_breaks_autolinks() -> None:
-    escaped = escape_markdown("see http://evil.example and www.evil.example or a@evil.example")
-    assert "http://evil" not in escaped
-    assert "www.evil" not in escaped
-    assert "a@evil" not in escaped
-    assert escaped.replace("\u2060", "") == (
-        "see http://evil.example and www.evil.example or a@evil.example"
-    )
+def test_temporary_files_are_named_for_pakad(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefixes: list[str] = []
+    real = tempfile.mkstemp
+
+    def spy(*args: Any, **kwargs: Any) -> tuple[int, str]:
+        prefixes.append(kwargs["prefix"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", spy)
+    write_files(tmp_path, {"a.txt": "one"}, force=False)
+    write_files(tmp_path, {"a.txt": "two"}, force=True)
+    assert set(prefixes) == {".pakad-", ".pakad-old-"}
+    assert [p.name for p in tmp_path.iterdir()] == ["a.txt"]
+
+
+def test_pakad_error_catches_every_error_the_library_raises() -> None:
+    assert PakadError is FaithfulError
+    assert issubclass(OutputError, PakadError)
+    assert issubclass(InputError, PakadError)
+    assert issubclass(ProfileError, PakadError)
