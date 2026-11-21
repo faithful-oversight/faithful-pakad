@@ -13,7 +13,7 @@ key = ["employee_id"]          # one or more columns that identify a record
 [collected]
 key = ["employeeID"]           # same number of columns as expected.key, in the same order
 
-# How keys are compared. Steps run in order: strip, casefold, collapse-whitespace, nfkc.
+# How keys are compared. Steps run in the order listed. If you use nfkc, list it first.
 [match]
 normalize = ["strip", "casefold"]
 

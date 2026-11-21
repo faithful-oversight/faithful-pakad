@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from faithful_pakad.errors import InputError
 from faithful_pakad.model import Record, Side, SourceRef, Table, Value
-from faithful_pakad.names import display_name
+from faithful_pakad.names import display_name, error_path
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +27,13 @@ if TYPE_CHECKING:
 
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 MAX_FIELD_CHARS = 1024 * 1024
+READ_BLOCK_BYTES = 1024 * 1024
+"""Files are read in blocks of this size."""
 JSON_LIST_KEYS = ("value", "records")
+NEXT_LINK_KEYS = frozenset({"odata.nextlink", "nextlink"})
+"""Wrapper properties (lower case, no leading ``@``) that name the next page of results."""
+COUNT_KEYS = frozenset({"odata.count", "count"})
+"""Wrapper properties, compared the same way, that give the total number of records."""
 MAX_JSON_DEPTH = 64
 """Nested JSON values deeper than this are an input error, on every Python version."""
 _SURROGATE = re.compile("[\ud800-\udfff]")
@@ -54,38 +60,59 @@ def read_table(
         InputError: The file cannot be read, is too large, or is malformed.
     """
     name = display_name(path)
+    where = error_path(path)
     try:
-        with path.open("rb") as handle:
-            raw = handle.read(max_bytes + 1)
+        raw = _read_limited(path, max_bytes)
     except OSError as exc:
-        msg = f"cannot read {side} input {name}: {exc.strerror}"
+        msg = f"cannot read {side} input {where}: {exc.strerror}"
         raise InputError(msg) from exc
     if len(raw) > max_bytes:
-        msg = f"{name}: file is over the {max_bytes}-byte limit; raise it with --max-bytes"
+        msg = f"{where}: file is over the {max_bytes}-byte limit; raise it with --max-bytes"
         raise InputError(msg)
     try:
         text = raw.decode(spec.encoding)
     except UnicodeDecodeError as exc:
-        msg = f"{name}: not valid {spec.encoding} text at byte {exc.start}"
+        msg = f"{where}: not valid {spec.encoding} text at byte {exc.start}"
         raise InputError(msg) from exc
     except LookupError as exc:
-        msg = f"{name}: unknown encoding {spec.encoding!r}"
+        msg = f"{where}: unknown encoding {spec.encoding!r}"
         raise InputError(msg) from exc
 
     fmt = spec.format if spec.format != "auto" else _detect_format(path)
     if fmt == "json":
-        columns, records = _read_json(text, name, side)
+        columns, records, incomplete, paging = _read_json(text, name, where, side)
     else:
         delimiter = spec.delimiter or ("\t" if path.suffix.lower() == ".tsv" else ",")
-        columns, records = _read_csv(text, name, side, delimiter)
+        columns, records = _read_csv(text, name, where, side, delimiter)
+        incomplete = paging = ()
     return Table(
         side=side,
         file=name,
+        path=where,
         sha256=hashlib.sha256(raw).hexdigest(),
         size_bytes=len(raw),
         columns=columns,
         records=records,
+        paging_signals=paging,
+        incomplete_signals=incomplete,
     )
+
+
+def _read_limited(path: Path, max_bytes: int) -> bytearray:
+    """Read a file, stopping one byte past ``max_bytes``.
+
+    The file is read in blocks, so a very large limit costs memory only for the
+    bytes that exist. ``read(max_bytes + 1)`` reserves the whole amount first,
+    which fails for a small file when the limit is large.
+    """
+    data = bytearray()
+    with path.open("rb") as handle:
+        while len(data) <= max_bytes:
+            block = handle.read(min(READ_BLOCK_BYTES, max_bytes + 1 - len(data)))
+            if not block:
+                break
+            data += block
+    return data
 
 
 def _detect_format(path: Path) -> str:
@@ -95,23 +122,22 @@ def _detect_format(path: Path) -> str:
     if suffix == ".json":
         return "json"
     msg = (
-        f"{display_name(path)}: cannot tell the format from the extension; "
-        "set format in the profile"
+        f"{error_path(path)}: cannot tell the format from the extension; set format in the profile"
     )
     raise InputError(msg)
 
 
 def _read_csv(
-    text: str, name: str, side: Side, delimiter: str
+    text: str, name: str, where: str, side: Side, delimiter: str
 ) -> tuple[tuple[str, ...], tuple[Record, ...]]:
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True)
     try:
         header = next(reader, None)
         if not header:
-            msg = f"{name}: the file is empty or has no header row"
+            msg = f"{where}: the file is empty or has no header row"
             raise InputError(msg)
-        _reject_surrogates(header, name, 1)
-        columns = _check_header(header, name)
+        _reject_surrogates(header, where, 1)
+        columns = _check_header(header, where)
         records: list[Record] = []
         last_line = reader.line_num
         for row in reader:
@@ -119,22 +145,22 @@ def _read_csv(
             last_line = reader.line_num
             if not row:
                 continue
-            _reject_surrogates(row, name, start)
+            _reject_surrogates(row, where, start)
             if len(row) > len(columns):
                 msg = (
-                    f"{name}: line {start} has {len(row)} fields but the header has {len(columns)}"
+                    f"{where}: line {start} has {len(row)} fields but the header has {len(columns)}"
                 )
                 raise InputError(msg)
             # Short rows store only the fields present; absent columns read as None.
             values: dict[str, Value] = dict(zip(columns, row, strict=False))
             records.append(Record(SourceRef(side, name, start), values))
     except csv.Error as exc:
-        msg = f"{name}: malformed CSV near line {reader.line_num}: {exc}"
+        msg = f"{where}: malformed CSV near line {reader.line_num}: {exc}"
         raise InputError(msg) from exc
     return columns, tuple(records)
 
 
-def _reject_surrogates(fields: list[str], name: str, line: int) -> None:
+def _reject_surrogates(fields: list[str], where: str, line: int) -> None:
     """Refuse a CSV row with an unpaired surrogate, naming its line and column.
 
     Some configured encodings, such as ``utf-7`` and ``unicode_escape``, decode
@@ -143,19 +169,19 @@ def _reject_surrogates(fields: list[str], name: str, line: int) -> None:
     """
     for number, field in enumerate(fields, start=1):
         if _SURROGATE.search(field):
-            msg = f"{name}: line {line}, column {number} {_SURROGATE_MESSAGE}"
+            msg = f"{where}: line {line}, column {number} {_SURROGATE_MESSAGE}"
             raise InputError(msg)
 
 
-def _check_header(header: list[str], name: str) -> tuple[str, ...]:
+def _check_header(header: list[str], where: str) -> tuple[str, ...]:
     columns = tuple(h.strip() for h in header)
     if any(not c for c in columns):
-        msg = f"{name}: the header has an empty column name"
+        msg = f"{where}: the header has an empty column name"
         raise InputError(msg)
     seen: set[str] = set()
     for column in columns:
         if column in seen:
-            msg = f"{name}: the header repeats column {column!r}"
+            msg = f"{where}: the header repeats column {column!r}"
             raise InputError(msg)
         seen.add(column)
     return columns
@@ -195,7 +221,9 @@ def _reject_constant(value: str) -> None:
     raise ValueError(msg)
 
 
-def _read_json(text: str, name: str, side: Side) -> tuple[tuple[str, ...], tuple[Record, ...]]:
+def _read_json(
+    text: str, name: str, where: str, side: Side
+) -> tuple[tuple[str, ...], tuple[Record, ...], tuple[str, ...], tuple[str, ...]]:
     try:
         data = json.loads(
             text,
@@ -205,47 +233,79 @@ def _read_json(text: str, name: str, side: Side) -> tuple[tuple[str, ...], tuple
             object_pairs_hook=_unique_pairs,
         )
     except (ValueError, RecursionError) as exc:
-        msg = f"{name}: not valid JSON: {exc}"
+        msg = f"{where}: not valid JSON: {exc}"
         raise InputError(msg) from exc
+    incomplete: tuple[str, ...] = ()
+    paging: tuple[str, ...] = ()
     if isinstance(data, dict):
         found = [k for k in JSON_LIST_KEYS if isinstance(data.get(k), list)]
         if len(found) != 1:
-            msg = f"{name}: expected a JSON array, or an object with a 'value' or 'records' array"
+            msg = f"{where}: expected a JSON array, or an object with a 'value' or 'records' array"
             raise InputError(msg)
+        incomplete, paging = _paging_signals(data, len(data[found[0]]))
         data = data[found[0]]
     if not isinstance(data, list):
-        msg = f"{name}: expected a JSON array of objects"
+        msg = f"{where}: expected a JSON array of objects"
         raise InputError(msg)
     columns: dict[str, None] = {}
     rows: list[dict[str, Any]] = []
     for index, item in enumerate(data, start=1):
         if not isinstance(item, dict):
-            msg = f"{name}: item {index} is not a JSON object"
+            msg = f"{where}: item {index} is not a JSON object"
             raise InputError(msg)
         stripped = [k.strip() for k in item]
         if len(set(stripped)) != len(stripped):
-            msg = f"{name}: item {index} repeats a property name"
+            msg = f"{where}: item {index} repeats a property name"
             raise InputError(msg)
         rows.append(item)
         columns.update(dict.fromkeys(stripped))
     if "" in columns:
-        msg = f"{name}: an object has an empty property name"
+        msg = f"{where}: an object has an empty property name"
         raise InputError(msg)
     records = tuple(
-        Record(SourceRef(side, name, index, "item"), _json_values(item, name, index))
+        Record(SourceRef(side, name, index, "item"), _json_values(item, where, index))
         for index, item in enumerate(rows, start=1)
     )
-    return tuple(columns), records
+    return tuple(columns), records, incomplete, paging
 
 
-def _json_values(item: dict[str, Any], name: str, index: int) -> dict[str, Value]:
+def _paging_signals(wrapper: dict[str, Any], held: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return what a JSON wrapper says about being one page of a larger result.
+
+    A Microsoft Graph page carries ``@odata.nextLink`` when more pages follow, and
+    ``@odata.count`` gives the total when the query asked for it. A link that is
+    empty or null means the last page, so it is not a signal. Each signal is a
+    short sentence that goes into the report. The first result holds proof that the
+    file is incomplete (a next-page link); the second holds a total that differs from
+    the records held, which a filtered export can do legitimately.
+    """
+    incomplete: list[str] = []
+    differs: list[str] = []
+    for key, value in wrapper.items():
+        plain = key.strip().lstrip("@").lower()
+        if plain in NEXT_LINK_KEYS and type(value) is str and value.strip():
+            incomplete.append(f"{key} is present, so another page of results exists")
+        elif plain in COUNT_KEYS and _count_differs(value, held):
+            differs.append(f"{key} is {value}, but the file holds {held} records")
+    return tuple(incomplete), tuple(differs)
+
+
+def _count_differs(value: object, held: int) -> bool:
+    """Tell whether a JSON number says the total is something other than ``held``."""
+    if not isinstance(value, _Number) or not value.isascii() or not value.isdecimal():
+        return False
+    # A number too long to be a record count cannot equal one, and int() refuses very long text.
+    return len(value) > len(str(held)) or int(value) != held
+
+
+def _json_values(item: dict[str, Any], where: str, index: int) -> dict[str, Value]:
     """Convert one JSON object. Only properties present are stored."""
     values: dict[str, Value] = {}
     for key, raw in item.items():
         try:
             values[key.strip()] = _json_text(raw)
         except _UnusableValueError as exc:
-            msg = f"{name}: item {index}, property {key.strip()!r} {exc}"
+            msg = f"{where}: item {index}, property {key.strip()!r} {exc}"
             raise InputError(msg) from exc
     return values
 

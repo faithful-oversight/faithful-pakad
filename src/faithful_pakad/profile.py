@@ -13,12 +13,14 @@ from __future__ import annotations
 import codecs
 import hashlib
 import math
+import os
+import stat
 import tomllib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from faithful_pakad.errors import ProfileError
-from faithful_pakad.names import display_name
+from faithful_pakad.names import display_name, error_path
 from faithful_pakad.normalize import STEPS, normalize
 
 if TYPE_CHECKING:
@@ -272,6 +274,15 @@ def parse_profile(text: str, *, file: str = "<profile>", sha256: str = "") -> Pr
     except tomllib.TOMLDecodeError as exc:
         msg = f"profile is not valid TOML: {exc}"
         raise ProfileError(msg) from exc
+    except RecursionError as exc:
+        msg = "profile is nested too deeply"
+        raise ProfileError(msg) from exc
+    except (ValueError, OverflowError) as exc:
+        # tomllib builds integers with int(), which refuses more digits than the
+        # interpreter allows (4300 by default). The limit stays as it is; the
+        # profile is refused instead.
+        msg = "profile has an integer with too many digits to read"
+        raise ProfileError(msg) from exc
     root = _Section(data, "profile")
     version = root.raw("version")
     # The exact type matters: Python treats true and 1.0 as equal to 1.
@@ -302,6 +313,29 @@ def parse_profile(text: str, *, file: str = "<profile>", sha256: str = "") -> Pr
     )
 
 
+def _read_profile_bytes(path: Path) -> bytes:
+    """Read a profile from one open handle, never more than the limit plus one byte.
+
+    The handle is opened without waiting, so a named pipe with no writer is
+    refused instead of blocking, and it is checked after opening, so the file
+    cannot change between the check and the read. A profile must be a regular
+    file: a pipe, a device, or a stream reports a size of zero and can supply any
+    amount. The read itself stops one byte past the limit, so a file that grows
+    while it is read is still refused.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            msg = f"{error_path(path)}: a profile must be a regular file, not a pipe or device"
+            raise ProfileError(msg)
+        raw = handle.read(MAX_PROFILE_BYTES + 1)
+    if len(raw) > MAX_PROFILE_BYTES:
+        msg = f"{error_path(path)}: profile is larger than {MAX_PROFILE_BYTES} bytes"
+        raise ProfileError(msg)
+    return raw
+
+
 def load_profile(path: Path) -> Profile:
     """Read and validate a profile file.
 
@@ -309,16 +343,13 @@ def load_profile(path: Path) -> Profile:
         ProfileError: The file cannot be read or is not a valid profile.
     """
     try:
-        if path.stat().st_size > MAX_PROFILE_BYTES:
-            msg = f"{display_name(path)}: profile is larger than {MAX_PROFILE_BYTES} bytes"
-            raise ProfileError(msg)
-        raw = path.read_bytes()
+        raw = _read_profile_bytes(path)
     except OSError as exc:
-        msg = f"cannot read profile {display_name(path)}: {exc.strerror}"
+        msg = f"cannot read profile {error_path(path)}: {exc.strerror}"
         raise ProfileError(msg) from exc
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        msg = f"{display_name(path)}: profile must be UTF-8 text"
+        msg = f"{error_path(path)}: profile must be UTF-8 text"
         raise ProfileError(msg) from exc
     return parse_profile(text, file=display_name(path), sha256=hashlib.sha256(raw).hexdigest())

@@ -18,3 +18,13 @@ def display_name(path: Path) -> str:
     not UTF-8 as lone surrogates, which cannot be written to a report or manifest.
     """
     return os.fsencode(path.name).decode("utf-8", "backslashreplace")
+
+
+def error_path(path: Path) -> str:
+    r"""Return a path as the user gave it, as valid text for an error message.
+
+    Error messages name the whole path, so a mistyped directory is easy to spot.
+    Reports keep only the file name (see ``display_name``), so no directory layout
+    is recorded in them. Bytes that are not UTF-8 are shown as ``\xff``.
+    """
+    return os.fsencode(str(path)).decode("utf-8", "backslashreplace")

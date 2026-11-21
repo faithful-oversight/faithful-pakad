@@ -4,10 +4,15 @@
 
 from __future__ import annotations
 
+import os
+import stat
+import sys
+import threading
 from typing import TYPE_CHECKING
 
 import pytest
 
+from faithful_pakad.cli import ExitCode, main
 from faithful_pakad.errors import ProfileError
 from faithful_pakad.profile import DEFAULT_PAGE_SIZES, load_profile, parse_profile
 from tests.conftest import EXAMPLE_DIR, MINIMAL_PROFILE
@@ -151,3 +156,131 @@ def test_huge_or_out_of_range_ages_are_profile_errors(age: str) -> None:
 def test_boundary_ages_are_accepted(age: str) -> None:
     text = MINIMAL_PROFILE + f"[collection]\ncaptured_at_column = 't'\nmax_age_hours = {age}\n"
     assert parse_profile(text).collection.max_age_hours == float(age)
+
+
+@pytest.mark.parametrize(
+    "nested",
+    ["x = " + "[" * 100_000, "x = " + "{a=" * 100_000, "[[a]]\nb = " + "[" * 100_000],
+    ids=["arrays", "inline-tables", "array-of-tables"],
+)
+def test_a_deeply_nested_profile_is_a_profile_error(nested: str) -> None:
+    """PAKAD-C08: tomllib raises RecursionError, which must not become exit 4."""
+    with pytest.raises(ProfileError, match="nested too deeply"):
+        parse_profile("version = 1\n" + nested + "\n")
+
+
+def test_a_deeply_nested_profile_file_gives_exit_3(
+    write: Callable[[str, str | bytes], Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write("deep.toml", "version = 1\nx = " + "[" * 100_000 + "]" * 100_000 + "\n")
+    assert main(["check-profile", str(path)]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "profile is nested too deeply" in err
+    assert "internal error" not in err
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "junk = " + "9" * 5000,
+        "junk = -" + "9" * 5000,
+        "[extra]\nlist = [" + "9" * 5000 + "]",
+        "[collection]\nmax_age_hours = " + "9" * 5000,
+        "[collection]\npage_sizes = [" + "9" * 5000 + "]",
+    ],
+    ids=["junk", "negative", "in-list", "age", "page-size"],
+)
+def test_an_oversized_integer_is_a_profile_error(body: str) -> None:
+    """PAK-4: the interpreter's integer limit (4300 digits) must not become exit 4."""
+    with pytest.raises(ProfileError, match="integer with too many digits"):
+        parse_profile(MINIMAL_PROFILE + body + "\n")
+
+
+def test_an_oversized_integer_in_a_profile_file_gives_exit_3(
+    write: Callable[[str, str | bytes], Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write("big.toml", MINIMAL_PROFILE + "junk = " + "9" * 5000 + "\n")
+    assert path.stat().st_size < 1024 * 1024
+    assert main(["check-profile", str(path)]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "integer with too many digits" in err
+    assert "internal error" not in err
+    assert "Exceeds the limit" not in err
+
+
+def test_the_interpreters_integer_limit_is_left_alone() -> None:
+    """The fix maps the failure; it does not raise the limit for the whole process."""
+    limit = sys.get_int_max_str_digits()
+    with pytest.raises(ProfileError):
+        parse_profile(MINIMAL_PROFILE + "junk = " + "9" * (limit + 1) + "\n")
+    assert sys.get_int_max_str_digits() == limit
+
+
+MAX_BYTES = 1024 * 1024
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_a_named_pipe_is_not_a_profile_even_when_it_reports_size_zero(tmp_path: Path) -> None:
+    """PAK-5: a stream supplied 1,048,655 bytes past a size check that saw zero."""
+    fifo = tmp_path / "p.toml"
+    os.mkfifo(fifo)
+    payload = (
+        MINIMAL_PROFILE + "# " + "x" * (MAX_BYTES + 79 - len(MINIMAL_PROFILE)) + "\n"
+    ).encode()
+    assert len(payload) > MAX_BYTES
+    assert fifo.stat().st_size == 0
+
+    def feed() -> None:
+        try:
+            with fifo.open("wb") as writer:
+                writer.write(payload)
+        except OSError:
+            pass  # the reader refused the pipe and closed it
+
+    feeder = threading.Thread(target=feed, daemon=True)
+    feeder.start()
+    try:
+        with pytest.raises(ProfileError, match="must be a regular file"):
+            load_profile(fifo)
+    finally:
+        # Release a feeder still waiting for a reader.
+        drain = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+        os.close(drain)
+        feeder.join(timeout=10)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_a_named_pipe_with_no_writer_is_refused_instead_of_waiting(tmp_path: Path) -> None:
+    fifo = tmp_path / "p.toml"
+    os.mkfifo(fifo)
+    with pytest.raises(ProfileError, match="must be a regular file"):
+        load_profile(fifo)
+
+
+def test_a_directory_is_not_a_profile(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match=r"cannot read profile|must be a regular file"):
+        load_profile(tmp_path)
+
+
+def test_the_size_limit_holds_when_the_file_grows_after_the_size_check(
+    write: Callable[[str, str | bytes], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PAK-5: the limit applies to the bytes actually read, not to an earlier size."""
+    path = write("grow.toml", MINIMAL_PROFILE + "#" * (MAX_BYTES + 10))
+    regular = os.stat_result((stat.S_IFREG | 0o600, 0, 0, 1, 0, 0, 100, 0, 0, 0))
+    monkeypatch.setattr("faithful_pakad.profile.os.fstat", lambda _fd: regular)
+    with pytest.raises(ProfileError, match="larger than"):
+        load_profile(path)
+
+
+def test_a_profile_of_exactly_the_limit_is_accepted(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    padding = MAX_BYTES - len(MINIMAL_PROFILE.encode()) - 2
+    path = write("edge.toml", MINIMAL_PROFILE + "#" + "x" * padding + "\n")
+    assert path.stat().st_size == MAX_BYTES
+    assert load_profile(path).name == "test"
+    longer = write("over.toml", MINIMAL_PROFILE + "#" + "x" * (padding + 1) + "\n")
+    assert longer.stat().st_size == MAX_BYTES + 1
+    with pytest.raises(ProfileError, match="larger than"):
+        load_profile(longer)

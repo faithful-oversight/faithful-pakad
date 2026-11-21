@@ -49,15 +49,26 @@ def reconcile(profile: Profile, expected: Table, collected: Table, *, as_of: dat
 
     Raises:
         InputError: A column named in the profile is not in an input.
-        ValueError: ``as_of`` is not timezone-aware.
+        ValueError: ``as_of`` is not timezone-aware, or is outside years 1 to 9999 in UTC.
     """
     if as_of.tzinfo is None:
         msg = "as_of must be timezone-aware"
         raise ValueError(msg)
+    try:
+        as_of = as_of.astimezone(UTC)
+    except OverflowError as exc:
+        msg = "as_of is outside years 1 to 9999 once converted to UTC"
+        raise ValueError(msg) from exc
     _require_columns(expected, _expected_columns(profile))
     _require_columns(collected, _collected_columns(profile))
 
-    findings: list[Finding] = [_empty(t) for t in (expected, collected) if not t.records]
+    findings: list[Finding] = []
+    if not expected.records and not collected.records:
+        findings.append(_nothing_reconciled(expected, collected))
+    else:
+        findings.extend(_empty(t) for t in (expected, collected) if not t.records)
+    findings.extend(_incomplete(t) for t in (expected, collected) if t.incomplete_signals)
+    findings.extend(_declared_paging(t) for t in (expected, collected) if t.paging_signals)
     unknowns: list[Unknown] = []
     expected_index = _index(expected, profile.expected, profile.key_normalize, findings)
     collected_index = _index(collected, profile.collected, profile.key_normalize, findings)
@@ -83,6 +94,43 @@ def _empty(table: Table) -> Finding:
     )
 
 
+def _nothing_reconciled(expected: Table, collected: Table) -> Finding:
+    return Finding(
+        kind=Kind.NOTHING_RECONCILED,
+        message="Both inputs have no records, so nothing was reconciled.",
+        details={"expected_file": expected.file, "collected_file": collected.file},
+    )
+
+
+def _incomplete(table: Table) -> Finding:
+    """Report a file that says more pages exist: it is incomplete, not merely possibly so."""
+    return Finding(
+        kind=Kind.INCOMPLETE_EXPORT,
+        message=f"The {table.side} input is one page of a larger result, so it is incomplete.",
+        details={
+            "input": table.side.value,
+            "file": table.file,
+            "signal": "; ".join(table.incomplete_signals),
+        },
+    )
+
+
+def _declared_paging(table: Table) -> Finding:
+    """Report a file whose stated total differs from the records it holds."""
+    return Finding(
+        kind=Kind.POSSIBLE_TRUNCATION,
+        message=(
+            f"The {table.side} input states a total that differs from its records, "
+            "so records may be missing from it."
+        ),
+        details={
+            "input": table.side.value,
+            "file": table.file,
+            "signal": "; ".join(table.paging_signals),
+        },
+    )
+
+
 def _raw_key(records: Sequence[Record], columns: Sequence[str]) -> str:
     """Return the key as written in the first record, before normalization."""
     return " | ".join(records[0].values.get(c) or "" for c in columns)
@@ -99,11 +147,15 @@ def _collected_columns(profile: Profile) -> list[str]:
 
 
 def _require_columns(table: Table, needed: Iterable[str]) -> None:
+    if not table.records and not table.columns:
+        # A JSON export with no records has no columns to check. It is reported as an
+        # empty input instead of sending the user to fix a profile that may be right.
+        return
     missing = [c for c in dict.fromkeys(needed) if c not in table.columns]
     if missing:
         available = ", ".join(table.columns) or "none"
         msg = (
-            f"{table.file} ({table.side} input) is missing "
+            f"{table.path or table.file} ({table.side} input) is missing "
             f"{count(len(missing), 'column')}: {', '.join(missing)}; "
             f"available: {available}"
         )
@@ -194,6 +246,15 @@ def _compare(
     unknowns: list[Unknown],
 ) -> Iterator[Finding]:
     if not profile.compare:
+        unknowns.append(
+            Unknown(
+                check="field comparison",
+                reason=(
+                    "Not checked: the profile lists no [[compare]] fields, "
+                    "so only key presence was compared."
+                ),
+            )
+        )
         return
     skipped = 0
     for key in matched:
@@ -222,7 +283,9 @@ def _compare_one(spec: CompareSpec, key: Key, exp: Record, col: Record) -> Findi
     if exp_raw is not None and col_raw is not None:
         exp_value = normalize(exp_raw, spec.normalize)
         col_value = normalize(col_raw, spec.normalize)
-        if spec.equivalents.get(col_value, col_value) == exp_value:
+        # An equivalent is an extra accepted form, never a replacement: identical
+        # values always match, even when the value is also listed as an equivalent.
+        if col_value == exp_value or spec.equivalents.get(col_value) == exp_value:
             return None
     if exp_raw is None and col_raw is None:
         message = f"{spec.expected} (expected) and {spec.collected} (collected) are both absent."
@@ -306,12 +369,12 @@ def _freshness(
                 refs=(record.ref,),
                 details={"column": column, "value": _show(raw)},
             )
-        elif when > as_of + FUTURE_TOLERANCE:
+        elif when - as_of > FUTURE_TOLERANCE:
             yield Finding(
                 kind=Kind.INVALID_TIMESTAMP,
                 message=f"Capture time in {column} is later than the reference time.",
                 refs=(record.ref,),
-                details={"column": column, "value": _show(raw), "as_of": as_of.isoformat()},
+                details={"column": column, "value": _show(raw), "as_of": format_instant(as_of)},
             )
         elif as_of - when > limit:
             yield Finding(
@@ -320,10 +383,16 @@ def _freshness(
                 refs=(record.ref,),
                 details={
                     "column": column,
-                    "captured_at": when.isoformat(),
-                    "max_age_hours": f"{spec.max_age_hours:g}",
+                    "captured_at": format_instant(when),
+                    "max_age_hours": _hours(spec.max_age_hours),
                 },
             )
+
+
+def _hours(value: float) -> str:
+    """Return an age limit exactly as configured: the shortest text that reads back the same."""
+    text = repr(value)
+    return text.removesuffix(".0")
 
 
 def _age(delta: timedelta) -> str:
@@ -333,11 +402,27 @@ def _age(delta: timedelta) -> str:
     return f"{hours / 24:,.1f} days"
 
 
-def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
-    """Parse an ISO 8601 timestamp.
+def format_instant(when: datetime, *, timespec: str = "auto") -> str:
+    """Return a time zone aware instant as RFC 3339 text in UTC, ending in ``Z``.
 
-    Returns ``None`` when the value is absent or invalid, or when it has no time
-    zone and ``assume_utc`` is false.
+    Every time pakad writes into a report goes through here, so an accepted form
+    that is not valid RFC 3339 (an offset with seconds, a basic-format date) can
+    never reach the output. Fractions of a second are kept when there are any.
+
+    Raises:
+        OverflowError: The instant is outside years 1 to 9999 once in UTC.
+    """
+    utc = when.astimezone(UTC)
+    return utc.isoformat(timespec=timespec).removesuffix("+00:00") + "Z"
+
+
+def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
+    """Parse an ISO 8601 timestamp and return it in UTC.
+
+    Returns ``None`` when the value is absent or invalid, when it has no time
+    zone and ``assume_utc`` is false, or when it falls outside years 1 to 9999
+    once converted to UTC. The last case is reported like any other unusable
+    value, so a bound never turns into a crash.
     """
     if value is None:
         return None
@@ -350,7 +435,10 @@ def parse_timestamp(value: str | None, *, assume_utc: bool) -> datetime | None:
         return None
     if when.tzinfo is None:
         return when.replace(tzinfo=UTC) if assume_utc else None
-    return when
+    try:
+        return when.astimezone(UTC)
+    except OverflowError:
+        return None
 
 
 def _truncation(
@@ -404,10 +492,10 @@ def _rules(profile: Profile) -> tuple[str, ...]:
             f"Every expected source must appear in {spec.source_column}: "
             f"{', '.join(spec.expected_sources)}."
         )
-    if spec.captured_at_column:
+    if spec.captured_at_column and spec.max_age_hours is not None:
         rules.append(
             f"Records in {spec.captured_at_column} must be at most "
-            f"{spec.max_age_hours:g} hours old (naive timestamps: {spec.naive_timestamps})."
+            f"{_hours(spec.max_age_hours)} hours old (naive timestamps: {spec.naive_timestamps})."
         )
     if spec.page_sizes:
         rules.append(f"Warn when record counts are exact multiples of {_join(spec.page_sizes)}.")

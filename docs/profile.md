@@ -2,7 +2,7 @@
 
 A profile is a [TOML](https://toml.io/) file that tells pakad how to read the two inputs, how to match records, and which checks to run. Print a commented starting point with `pakad example-profile`.
 
-Validation is strict. A setting pakad does not recognize is an error, so a typo can never silently switch a check off. Check a profile with `pakad check-profile`.
+Validation is strict. A setting pakad does not recognize is an error, so a typo can never silently switch a check off. Check a profile with `pakad check-profile`. A profile must be a regular file of at most 1 MiB; a pipe or device is refused.
 
 ## Complete example
 
@@ -56,16 +56,18 @@ Both tables take the same settings and both are required.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `normalize` | `["strip"]` | Steps applied to key values before matching, in order. |
+| `normalize` | `["strip"]` | Steps applied to key values before matching, in the order listed. |
 
 Available normalization steps:
 
 | Step | Effect |
 | --- | --- |
-| `strip` | Removes spaces, tabs, and line breaks at the start and end. |
-| `casefold` | Ignores letter case, including for non-English letters. |
-| `collapse-whitespace` | Turns every run of whitespace inside the value into one space. |
 | `nfkc` | Applies Unicode NFKC normalization, so look-alike forms such as full-width digits compare as plain digits. |
+| `strip` | Removes spaces, tabs, and line breaks at the start and end. |
+| `collapse-whitespace` | Turns every run of whitespace inside the value into one space. |
+| `casefold` | Ignores letter case, including for non-English letters. |
+
+The steps run exactly in the order you list them, and the order changes the result. Put `nfkc` first. NFKC can create new capital letters, new spaces, and new leading or trailing whitespace, so a later `casefold` or `strip` cleans up what it made, while an earlier one does not. For example, with `["casefold", "nfkc"]` the letters U+03D2 and U+03A5 become different keys (`Υ` and `υ`), and with `["nfkc", "casefold"]` they match. The report's rules list the steps in the order they ran.
 
 Choose steps deliberately. If two different raw keys become identical after normalization, pakad reports an `ambiguous-key` finding rather than silently merging them.
 
@@ -78,11 +80,11 @@ Optional. Repeat the table once for each field to compare on matched records.
 | `expected` | required | Column in the expected input. |
 | `collected` | required | Column in the collected input. |
 | `normalize` | `["strip"]` | Steps applied to both values before comparing. |
-| `equivalents` | none | Table mapping a collected value to the expected value it counts as. Keys and values are normalized with the same steps, and two keys that normalize to the same text are an error. |
+| `equivalents` | none | Table mapping a collected value to the expected value it counts as. The mapping adds an accepted form and runs one way, from collected to expected: a collected value equal to the expected value always matches, and the expected value is never mapped. Keys and values are normalized with the same steps, and two keys that normalize to the same text are an error. |
 
 An absent value never equals anything, including another absent value, so missing data always shows up as a `field-mismatch`.
 
-Fields are compared only when each side has exactly one record for the key. When duplicates make the pairing unclear, pakad skips the comparison for that key and says so under **Not verified**.
+A profile with no `[[compare]]` section compares only key presence, and the report lists "field comparison" under **Not verified**, so a run that compared no fields is never read as a full pass. Fields are compared only when each side has exactly one record for the key. When duplicates make the pairing unclear, pakad skips the comparison for that key and says so under **Not verified**.
 
 ## `[collection]`
 
@@ -97,4 +99,4 @@ Optional checks on the collected export as a whole.
 | `naive_timestamps` | `reject` | How to treat capture times without a time zone: `reject` reports them as invalid, `utc` treats them as UTC. |
 | `page_sizes` | `[1000, 1500, 5000]` | Warn when the collected record count, overall or for any source, is an exact multiple of one of these numbers. Use `[]` to switch the check off. |
 
-Checks that are not configured are listed under **Not verified** in every report, so a reader can see what was not checked.
+Checks that are not configured are listed under **Not verified** in every report, so a reader can see what was not checked. That includes field comparison: a profile with no `[[compare]]` fields compares only that each key exists, and the report says so.

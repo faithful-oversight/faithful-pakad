@@ -2,7 +2,7 @@
 
 **7 errors and 2 warnings need review.**
 
-Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T23:24:18+00:00 by pakad 0.1.0. Run ID `7054929deee74c35b006ab44605a4654`.
+Reference time 2026-11-07T12:00:00Z. Generated 2026-11-19T03:47:30Z by pakad 0.1.2. Run ID `73174f3b8e7e4ecfa368e4425409a733`.
 
 > This report covers only what the input files contain. It cannot detect records a source system never exported, and a clean result is not proof that the environment is correct.
 
@@ -100,7 +100,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T23:24:18+00:00 by
 
 | ID | Key | Source | Details |
 | --- | --- | --- | --- |
-| F00008 | — | collected: collected.csv line 8 | column: collectedAt; captured at: 2026-11-04T06:00:00+00:00; max age hours: 24 |
+| F00008 | — | collected: collected.csv line 8 | column: collectedAt; captured at: 2026-11-04T06:00:00Z; max age hours: 24 |
 
 ### Unusable capture times (1)
 
@@ -118,7 +118,7 @@ Reference time 2026-11-07T12:00:00+00:00. Generated 2026-11-07T23:24:18+00:00 by
 | --- | --- | --- | --- | --- |
 | Expected | expected.csv | 9 | 390 | a44a4f07a0d3a27d9eeb1d95736fbd7b92bb21bb006d122af89cb4bde836b2d8 |
 | Collected | collected.csv | 12 | 793 | 8e7cf644a6c61b4b433b323cace116fe78d2504f70001fb29dcddbfc919e9aa7 |
-| Profile | profile.toml | — | — | 285f99b876116a207b924538fa817ee973d076e8d8068fa4ce48c8abbf7f7b81 |
+| Profile | profile.toml | — | — | 2b264b4cf47a61110239dc7dfb063b9e83fe8ec78d88ba7e959febfc3250d362 |
 
 Rules applied:
 

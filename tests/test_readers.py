@@ -108,8 +108,9 @@ def test_size_limit(write: Callable[[str, str | bytes], Path]) -> None:
 
 
 def test_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(InputError, match=r"cannot read expected input absent\.csv"):
+    with pytest.raises(InputError, match=r"cannot read expected input .*absent\.csv") as caught:
         read(tmp_path / "absent.csv")
+    assert str(tmp_path) in str(caught.value)
 
 
 def test_json_values_become_text(write: Callable[[str, str | bytes], Path]) -> None:
@@ -229,3 +230,96 @@ def test_csv_round_trip_preserves_values(
     writer.writerows(rows)
     result = read(write("rt.csv", buffer.getvalue()))
     assert result == [{"id": a, "value": b} for a, b in rows]
+
+
+GRAPH_PAGE = (
+    '{"@odata.context": "https://graph.example/v1.0/$metadata#users", %s, "value": [{"id": "A1"}]}'
+)
+
+
+@pytest.mark.parametrize(
+    ("extras", "expected"),
+    [
+        ('"@odata.nextLink": "https://graph.example/v1.0/users?$skiptoken=abc"', "@odata.nextLink"),
+        ('"nextLink": "https://example.test/next"', "nextLink"),
+        ('"@ODATA.NEXTLINK": "https://example.test/next"', "@ODATA.NEXTLINK"),
+    ],
+)
+def test_a_next_page_link_marks_the_input_incomplete(
+    write: Callable[[str, str | bytes], Path], extras: str, expected: str
+) -> None:
+    """PAKAD-C02: a paged Graph export is not a complete population."""
+    table = read_table(write("graph.json", GRAPH_PAGE % extras), SPEC, Side.COLLECTED)
+    assert len(table.incomplete_signals) == 1
+    assert expected in table.incomplete_signals[0]
+    assert table.paging_signals == ()
+    assert [r.values.get("id") for r in table.records] == ["A1"]
+
+
+@pytest.mark.parametrize(
+    ("extras", "expected"),
+    [
+        ('"@odata.count": 250', "@odata.count is 250, but the file holds 1 records"),
+        ('"count": 12', "count is 12, but the file holds 1 records"),
+    ],
+)
+def test_a_differing_total_is_only_a_possible_truncation_signal(
+    write: Callable[[str, str | bytes], Path], extras: str, expected: str
+) -> None:
+    table = read_table(write("graph.json", GRAPH_PAGE % extras), SPEC, Side.COLLECTED)
+    assert table.incomplete_signals == ()
+    assert len(table.paging_signals) == 1
+    assert expected in table.paging_signals[0]
+
+
+@pytest.mark.parametrize(
+    "extras",
+    [
+        '"@odata.nextLink": null',
+        '"@odata.nextLink": ""',
+        '"@odata.nextLink": 5',
+        '"@odata.count": 1',
+        '"count": "7"',
+        '"count": 1.5',
+        '"@odata.deltaLink": "https://graph.example/v1.0/users/delta?$deltatoken=x"',
+    ],
+)
+def test_a_json_wrapper_that_does_not_say_more_exists_is_not_flagged(
+    write: Callable[[str, str | bytes], Path], extras: str
+) -> None:
+    path = write("graph.json", GRAPH_PAGE % extras)
+    table = read_table(path, SPEC, Side.COLLECTED)
+    assert table.paging_signals == ()
+    assert table.incomplete_signals == ()
+
+
+def test_a_huge_count_is_a_different_total_and_does_not_crash(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    path = write("graph.json", GRAPH_PAGE % ('"count": ' + "9" * 5000))
+    assert len(read_table(path, SPEC, Side.COLLECTED).paging_signals) == 1
+
+
+def test_plain_arrays_and_csv_have_no_paging_signals(
+    write: Callable[[str, str | bytes], Path],
+) -> None:
+    assert read_table(write("a.json", '[{"id": "1"}]'), SPEC, Side.EXPECTED).paging_signals == ()
+    assert read_table(write("a.csv", "id\n1\n"), SPEC, Side.EXPECTED).paging_signals == ()
+
+
+@pytest.mark.parametrize("limit", [2**36, 2**40, 2**63 - 1, 2**63, 2**200])
+def test_a_huge_size_limit_does_not_fail_on_a_tiny_file(
+    write: Callable[[str, str | bytes], Path], limit: int
+) -> None:
+    """PAKAD-C06: the limit is a ceiling, not an amount of memory to reserve."""
+    assert read(write("a.csv", "id\nA1\n"), max_bytes=limit) == [{"id": "A1"}]
+
+
+def test_the_limit_is_exact_across_read_blocks(
+    write: Callable[[str, str | bytes], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("faithful_pakad.readers.READ_BLOCK_BYTES", 3)
+    path = write("a.csv", "id\n1234567\n")  # 11 bytes
+    assert len(read(path, max_bytes=11)) == 1
+    with pytest.raises(InputError, match="over the 10-byte limit"):
+        read(path, max_bytes=10)

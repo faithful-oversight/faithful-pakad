@@ -5,14 +5,17 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import runpy
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import jsonschema
 import pytest
 
 from faithful_pakad import __version__
@@ -23,7 +26,18 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 AS_OF = "2026-11-07T12:00:00Z"
+REPORT_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/report-v1.schema.json"
+    ).read_text(encoding="utf-8")
+)
+MANIFEST_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parent.parent / "src/faithful_pakad/schema/manifest-v1.schema.json"
+    ).read_text(encoding="utf-8")
+)
 SAMPLE_DIR = EXAMPLE_DIR / "sample-report"
+NO_BREAK_SPACE = chr(0xA0)
 
 
 def example_args(out: Path, *extra: str) -> list[str]:
@@ -189,7 +203,9 @@ def test_input_errors_exit_3(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     args = example_args(tmp_path)
     args[args.index("-e") + 1] = str(tmp_path / "absent.csv")
     assert main(args) == ExitCode.INPUT_ERROR
-    assert capsys.readouterr().err.startswith("pakad: error: cannot read expected input absent.csv")
+    assert capsys.readouterr().err.startswith(
+        f"pakad: error: cannot read expected input {tmp_path / 'absent.csv'}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -344,7 +360,7 @@ def test_recorded_reference_time_reproduces_the_findings(
     first = tmp_path / "first"
     assert main([*base, "-o", str(first), "--as-of", "2026-11-07T12:00:00.6Z"]) == 1
     report = json.loads((first / "pakad-report.json").read_text())
-    assert report["as_of"] == "2026-11-07T12:00:00.600000+00:00"
+    assert report["as_of"] == "2026-11-07T12:00:00.600000Z"
     again = tmp_path / "again"
     assert main([*base, "-o", str(again), "--as-of", report["as_of"]]) == 1
     replay = json.loads((again / "pakad-report.json").read_text())
@@ -479,7 +495,7 @@ def test_error_messages_show_names_that_are_not_utf8_as_escapes(
 ) -> None:
     missing = tmp_path / os.fsdecode(b"missing\xff.csv")
     assert main(["check-profile", str(missing)]) == ExitCode.INPUT_ERROR
-    assert "cannot read profile missing\\xff.csv" in capsys.readouterr().err
+    assert f"cannot read profile {tmp_path}/missing\\xff.csv" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -507,7 +523,7 @@ def test_csv_text_with_an_unpaired_surrogate_is_an_input_error(
     args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col)]
     assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
     err = capsys.readouterr().err
-    assert err.startswith("pakad: error: bad.csv: line 2, column 1 contains an unpaired surrogate")
+    assert err.startswith(f"pakad: error: {bad}: line 2, column 1 contains an unpaired surrogate")
     assert "Traceback" not in err
     assert not (tmp_path / "o").exists()
 
@@ -523,7 +539,7 @@ def test_csv_header_with_an_unpaired_surrogate_is_an_input_error(
     args = ["reconcile", "-p", str(profile), "-e", str(bad), "-c", str(good)]
     assert main([*args, "-o", str(tmp_path / "o")]) == ExitCode.INPUT_ERROR
     err = capsys.readouterr().err
-    assert "bad.csv: line 1, column 2 contains an unpaired surrogate" in err
+    assert f"{bad}: line 1, column 2 contains an unpaired surrogate" in err
     assert "Traceback" not in err
 
 
@@ -541,3 +557,537 @@ def test_internal_errors_print_only_the_type_and_a_short_message(
     assert "..." in err
     assert "\x1b" not in err
     assert len(err) < 600
+
+
+# Output that cannot be printed never changes the result -------------------------------
+
+
+class ClosedPipe:
+    """A standard output whose reader has gone away."""
+
+    encoding = "utf-8"
+
+    def write(self, text: str) -> int:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self) -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+def test_a_closed_pipe_keeps_the_real_exit_code_and_complete_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PAKAD-C01: ``pakad reconcile ... | head`` is not an internal error."""
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    code = main(example_args(tmp_path))
+    replaced = sys.stdout
+    assert isinstance(replaced, io.TextIOWrapper), "output must go to the null device"
+    replaced.close()
+    assert code == ExitCode.FINDINGS
+    assert_manifest_matches(tmp_path)
+    assert (tmp_path / "pakad-report.html").is_file()
+
+
+def test_a_closed_pipe_while_printing_a_resource_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    code = main(["example-profile"])
+    replaced = sys.stdout
+    assert isinstance(replaced, io.TextIOWrapper)
+    replaced.close()
+    assert code == ExitCode.OK
+
+
+def test_a_closed_pipe_while_printing_help_or_a_version_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    assert main(["--version"]) == ExitCode.OK
+    assert main([]) == ExitCode.USAGE
+
+
+def run_pakad(
+    args: list[str], env: dict[str, str], tmp: Path, *, close_stdout: bool = False
+) -> subprocess.CompletedProcess[bytes]:
+    full_env = {k: v for k, v in os.environ.items() if k not in {"PYTHONIOENCODING", "PYTHONUTF8"}}
+    full_env.update(env)
+    command = [sys.executable, "-m", "faithful_pakad", *args]
+    if not close_stdout:
+        return subprocess.run(  # noqa: S603 - fixed arguments, run from the test suite
+            command, env=full_env, capture_output=True, check=False, cwd=tmp
+        )
+    with subprocess.Popen(  # noqa: S603 - fixed arguments, run from the test suite
+        command, env=full_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmp
+    ) as process:
+        assert process.stdout is not None
+        assert process.stderr is not None
+        process.stdout.close()  # the reader goes away before the child prints
+        # Not communicate(): on Windows it starts a reader thread for the closed stdout.
+        stderr = process.stderr.read()
+        returncode = process.wait(timeout=120)
+    return subprocess.CompletedProcess(command, returncode, b"", stderr)
+
+
+def test_ascii_only_output_with_a_non_ascii_path_keeps_the_exit_code(tmp_path: Path) -> None:
+    """PAKAD-C01: output that cannot encode a path character is not an internal error."""
+    out = tmp_path / "out-ü"
+    result = run_pakad(example_args(out), {"PYTHONIOENCODING": "ascii"}, tmp_path)
+    assert result.returncode == ExitCode.FINDINGS, result.stderr
+    assert b"internal error" not in result.stderr
+    assert b"out-\\xfc" in result.stdout
+    assert_manifest_matches(out)
+
+
+def test_ascii_only_error_message_with_a_non_ascii_path_keeps_the_exit_code(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "gone-ü.csv"
+    args = example_args(tmp_path / "o")
+    args[args.index("-e") + 1] = str(missing)
+    result = run_pakad(args, {"PYTHONIOENCODING": "ascii"}, tmp_path)
+    assert result.returncode == ExitCode.INPUT_ERROR, result.stderr
+    assert b"internal error" not in result.stderr
+
+
+def test_a_closed_pipe_in_a_real_process_keeps_the_exit_code(tmp_path: Path) -> None:
+    result = run_pakad(example_args(tmp_path), {}, tmp_path, close_stdout=True)
+    assert result.returncode == ExitCode.FINDINGS, result.stderr
+    assert b"Traceback" not in result.stderr
+    assert b"internal error" not in result.stderr
+    assert_manifest_matches(tmp_path)
+
+
+def test_error_messages_name_the_whole_path_but_reports_keep_only_the_file_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAKAD-UX-06: a mistyped directory must be visible in the message."""
+    typo = tmp_path / "no-such-dir" / "profile.toml"
+    assert main(["check-profile", str(typo)]) == ExitCode.INPUT_ERROR
+    assert f"cannot read profile {typo}:" in capsys.readouterr().err
+
+    out = tmp_path / "out"
+    assert main(example_args(out)) == ExitCode.FINDINGS
+    report = (out / "pakad-report.json").read_text(encoding="utf-8")
+    assert str(EXAMPLE_DIR) not in report
+    assert str(tmp_path) not in report
+
+
+def test_a_paged_graph_export_is_reported_not_accepted_as_complete(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAKAD-C02: ``@odata.nextLink`` means the export is one page of a larger result."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA1\n")
+    page = write(
+        "graph.json",
+        '{"@odata.nextLink": "https://graph.example/v1.0/users?$skiptoken=abc",'
+        ' "value": [{"uid": "A1"}]}',
+    )
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(page), "-o", str(tmp_path)]
+    for fail_on in ("any", "error"):
+        out = tmp_path / fail_on
+        assert main([*args[:-1], str(out), "-f", "json,md", "--fail-on", fail_on]) == (
+            ExitCode.FINDINGS
+        )
+        report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+        assert [f["kind"] for f in report["findings"]] == ["incomplete-export"]
+        assert report["findings"][0]["severity"] == "error"
+        assert "@odata.nextLink is present" in report["findings"][0]["details"]["signal"]
+        assert "incomplete" in (out / "pakad-report.md").read_text(encoding="utf-8")
+    assert "No findings" not in capsys.readouterr().out
+
+
+def test_two_empty_inputs_fail_the_run_under_every_fail_on_that_can_fail(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing was reconciled: an error, with its own headline."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\n")
+    col = write("c.csv", "uid\n")
+    base = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col)]
+    for fail_on in ("any", "error"):
+        out = tmp_path / fail_on
+        assert main([*base, "-o", str(out), "--fail-on", fail_on]) == ExitCode.FINDINGS
+    assert "Nothing was reconciled: both inputs are empty." in capsys.readouterr().out
+    assert main([*base, "-o", str(tmp_path / "n"), "--fail-on", "never"]) == ExitCode.OK
+    # One empty input stays a warning, so --fail-on error passes.
+    one = write("one.csv", "uid\nA1\n")
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(one)]
+    code = main([*args, "-o", str(tmp_path / "one"), "--fail-on", "error"])
+    assert code == ExitCode.FINDINGS  # the unexpected record is an error
+
+
+def test_a_no_break_space_in_a_key_is_visible_in_the_report(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path
+) -> None:
+    """PAKAD-C05: two keys that differ only by a look-alike space must not print the same."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA 1\n")
+    col = write("c.csv", "uid\nA" + NO_BREAK_SPACE + "1\n")
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(tmp_path)]
+    assert main([*args, "-f", "md,csv,html"]) == ExitCode.FINDINGS
+    for name in ("pakad-report.md", "pakad-findings.csv", "pakad-report.html"):
+        text = (tmp_path / name).read_text(encoding="utf-8")
+        assert NO_BREAK_SPACE not in text, name
+        assert "A\\u00a01" in text.replace("\\\\", "\\"), name
+
+
+@pytest.mark.parametrize("empty", ["[]", '{"value": []}', '{"records": []}'])
+def test_an_empty_json_export_is_an_empty_input_not_a_profile_problem(
+    write: Callable[[str, str | bytes], Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    empty: str,
+) -> None:
+    """PAKAD-C09: the same situation as a header-only CSV gets the same finding."""
+    profile = write("p.toml", MINIMAL_PROFILE)
+    exp = write("e.csv", "id\nA1\n")
+    col = write("c.json", empty)
+    args = ["reconcile", "-p", str(profile), "-e", str(exp), "-c", str(col), "-o", str(tmp_path)]
+    assert main([*args, "-f", "json"]) == ExitCode.FINDINGS
+    report = json.loads((tmp_path / "pakad-report.json").read_text(encoding="utf-8"))
+    assert sorted(f["kind"] for f in report["findings"]) == ["empty-input", "missing"]
+    assert "missing 1 column" not in capsys.readouterr().err
+
+
+PROFILE_TEXT = MINIMAL_PROFILE
+REPORT_NAMES = (
+    "pakad-report.html",
+    "pakad-report.json",
+    "pakad-findings.csv",
+    "pakad-report.md",
+    "pakad-manifest.json",
+)
+
+
+def alias_run(out: Path, profile: Path, expected: Path, collected: Path, *extra: str) -> list[str]:
+    return [
+        "reconcile",
+        "-p",
+        str(profile),
+        "-e",
+        str(expected),
+        "-c",
+        str(collected),
+        "-o",
+        str(out),
+        *extra,
+    ]
+
+
+@pytest.mark.parametrize("name", REPORT_NAMES)
+@pytest.mark.parametrize("side", ["profile", "expected", "collected"])
+@pytest.mark.parametrize("force", [False, True])
+def test_a_report_target_that_is_an_input_is_refused_even_with_force(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str, side: str, *, force: bool
+) -> None:
+    """PAK-1: --force must never replace a source with a generated report."""
+    out = tmp_path / "out"
+    out.mkdir()
+    sources = {
+        "profile": tmp_path / "p.toml",
+        "expected": tmp_path / "e.csv",
+        "collected": tmp_path / "c.csv",
+    }
+    sources["profile"].write_text(PROFILE_TEXT, encoding="utf-8")
+    sources["expected"].write_bytes(b"id\n1\n")
+    sources["collected"].write_text("uid\n1\n", encoding="utf-8")
+    sources[side] = out / name
+    sources[side].write_bytes(
+        {"profile": PROFILE_TEXT, "expected": "id\n1\n", "collected": "uid\n1\n"}[side].encode()
+    )
+    before = {path: path.read_bytes() for path in sources.values()}
+    args = alias_run(out, sources["profile"], sources["expected"], sources["collected"])
+    assert main([*args, *(["--force"] if force else [])]) == ExitCode.INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "would be overwritten by the report file" in err
+    assert side in err.split("overwritten")[0]
+    assert {path: path.read_bytes() for path in sources.values()} == before
+    assert sorted(p.name for p in out.iterdir()) == [name]
+
+
+def test_the_reviewers_reproduction_leaves_the_expected_file_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    expected = tmp_path / "pakad-findings.csv"
+    expected.write_bytes(b"id\n1\n")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    args = alias_run(tmp_path, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert expected.read_bytes() == b"id\n1\n"
+    assert "expected input" in capsys.readouterr().err
+    assert not (tmp_path / "pakad-manifest.json").exists()
+
+
+def test_only_the_selected_outputs_are_protected(tmp_path: Path) -> None:
+    """An input named like a report that is not selected is not in the way."""
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    expected = tmp_path / "pakad-findings.csv"
+    expected.write_bytes(b"id\n1\n")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    args = alias_run(tmp_path, profile, expected, collected, "-f", "json", "--force")
+    assert main(args) in (ExitCode.OK, ExitCode.FINDINGS)
+    assert (tmp_path / "pakad-report.json").exists()
+    assert expected.read_bytes() == b"id\n1\n"
+
+
+def _inputs_in(tmp_path: Path) -> tuple[Path, Path, Path]:
+    profile = tmp_path / "p.toml"
+    profile.write_text(PROFILE_TEXT, encoding="utf-8")
+    collected = tmp_path / "c.csv"
+    collected.write_text("uid\n1\n", encoding="utf-8")
+    expected = tmp_path / "keep" / "e.csv"
+    expected.parent.mkdir()
+    expected.write_bytes(b"id\n1\n")
+    return profile, expected, collected
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+@pytest.mark.parametrize("force", [False, True])
+def test_an_input_that_is_a_symlink_to_a_report_target_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], *, force: bool
+) -> None:
+    profile, real, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    real_target = out / "pakad-findings.csv"
+    real_target.write_bytes(real.read_bytes())
+    link = tmp_path / "link.csv"
+    link.symlink_to(real_target)
+    args = alias_run(out, profile, link, collected, *(["--force"] if force else []))
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert real_target.read_bytes() == b"id\n1\n"
+    assert link.is_symlink()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+def test_a_report_target_that_is_a_symlink_to_an_input_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile, expected, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "pakad-report.json").symlink_to(expected)
+    args = alias_run(out, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert expected.read_bytes() == b"id\n1\n"
+    assert (out / "pakad-report.json").is_symlink()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need extra rights on Windows")
+def test_an_output_directory_reached_through_a_symlink_is_still_checked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile, _, collected = _inputs_in(tmp_path)
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    expected = real_dir / "pakad-findings.csv"
+    expected.write_bytes(b"id\n1\n")
+    alias_dir = tmp_path / "alias"
+    alias_dir.symlink_to(real_dir, target_is_directory=True)
+    args = alias_run(alias_dir, profile, expected, collected, "--force")
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert expected.read_bytes() == b"id\n1\n"
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_an_input_that_is_a_hard_link_to_a_report_target_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], *, force: bool
+) -> None:
+    profile, real, collected = _inputs_in(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    target = out / "pakad-findings.csv"
+    try:
+        os.link(real, target)
+    except OSError:
+        pytest.skip("this file system has no hard links")
+    args = alias_run(out, profile, real, collected, *(["--force"] if force else []))
+    assert main(args) == ExitCode.INPUT_ERROR
+    assert "would be overwritten" in capsys.readouterr().err
+    assert real.read_bytes() == b"id\n1\n"
+    assert target.read_bytes() == b"id\n1\n"
+
+
+ACCEPTED_REFERENCE_TIMES = [
+    ("2026-11-14T12:00:00Z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00+00:00", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12:00:00-00:00", "2026-11-14T12:00:00Z"),
+    # The reviewer's case: an offset with seconds is not RFC 3339 and must not reach the report.
+    ("2026-11-14T12:00:00+00:00:30", "2026-11-14T11:59:30Z"),
+    ("2026-11-14T12:00:00-00:00:45", "2026-11-14T12:00:45Z"),
+    ("2026-11-14T12:00:00+0530", "2026-11-14T06:30:00Z"),
+    ("2026-11-14T12:00:00+05", "2026-11-14T07:00:00Z"),
+    ("2026-11-14T12:00:00.5-08:00", "2026-11-14T20:00:00.500000Z"),
+    ("2026-11-14T12:00:00,25+01:00", "2026-11-14T11:00:00.250000Z"),
+    ("20261114T120000Z", "2026-11-14T12:00:00Z"),
+    ("2026-W46-6T12:00:00Z", "2026-11-14T12:00:00Z"),
+    ("2026-11-14T12Z", "2026-11-14T12:00:00Z"),
+    ("0001-01-01T00:00:00Z", "0001-01-01T00:00:00Z"),
+    ("9999-12-31T23:59:59.999999Z", "9999-12-31T23:59:59.999999Z"),
+]
+
+
+@pytest.mark.parametrize(("given", "recorded"), ACCEPTED_REFERENCE_TIMES)
+def test_every_accepted_reference_time_is_recorded_as_a_valid_utc_instant(
+    tmp_path: Path, given: str, recorded: str
+) -> None:
+    """PAK-2: whatever --as-of form is accepted, every output validates against its schema."""
+    out = tmp_path / "out"
+    args = example_args(out)
+    args[args.index("--as-of") + 1] = given
+    assert main(args) == ExitCode.FINDINGS
+    report = json.loads((out / "pakad-report.json").read_text(encoding="utf-8"))
+    manifest = json.loads((out / "pakad-manifest.json").read_text(encoding="utf-8"))
+    jsonschema.validate(report, REPORT_SCHEMA, format_checker=jsonschema.FormatChecker())
+    jsonschema.validate(manifest, MANIFEST_SCHEMA, format_checker=jsonschema.FormatChecker())
+    assert report["as_of"] == recorded
+    assert report["generated_at"].endswith("Z")
+    assert manifest["generated_at"] == report["generated_at"]
+    # The text reports show the same recorded instant.
+    assert recorded in (out / "pakad-report.md").read_text(encoding="utf-8")
+    assert recorded in (out / "pakad-report.html").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "0001-01-01T00:00:00+05:00",
+        "9999-12-31T23:59:59-05:00",
+        "9999-12-31T23:59:59.999999-00:00:01",
+    ],
+)
+def test_a_reference_time_that_leaves_the_supported_range_in_utc_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], given: str
+) -> None:
+    args = example_args(tmp_path / "out")
+    args[args.index("--as-of") + 1] = given
+    assert main(args) == ExitCode.USAGE
+    assert "not an ISO 8601 timestamp that fits" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_recorded_reference_time_replays_the_same_findings_in_any_accepted_form(
+    tmp_path: Path,
+) -> None:
+    """The normalized as_of in a report is itself an accepted --as-of that gives the same result."""
+    first = tmp_path / "first"
+    args = example_args(first)
+    args[args.index("--as-of") + 1] = "2026-11-07T17:30:00+05:30"
+    assert main(args) == ExitCode.FINDINGS
+    recorded = json.loads((first / "pakad-report.json").read_text(encoding="utf-8"))
+    second = tmp_path / "second"
+    args = example_args(second)
+    args[args.index("--as-of") + 1] = recorded["as_of"]
+    assert main(args) == ExitCode.FINDINGS
+    replay = json.loads((second / "pakad-report.json").read_text(encoding="utf-8"))
+    assert replay["as_of"] == recorded["as_of"] == "2026-11-07T12:00:00Z"
+    assert replay["findings"] == recorded["findings"]
+
+
+FORGED = "No findings in the supplied inputs."
+
+
+def reconcile_args(out: Path, profile: Path, expected: Path, collected: Path) -> list[str]:
+    return alias_run(out, profile, expected, collected)
+
+
+def test_a_profile_name_with_a_line_break_cannot_add_a_terminal_line(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PAK-3: the reviewer's reproduction. A name is one line, however it is written."""
+    profile = write(
+        "p.toml",
+        MINIMAL_PROFILE.replace('name = "test"', f'name = "test\\n{FORGED}\\r\\n\\tx"'),
+    )
+    expected = write("e.csv", "id\n1\n")
+    collected = write("c.csv", "uid\n2\n")
+    assert main(reconcile_args(tmp_path / "o", profile, expected, collected)) == ExitCode.FINDINGS
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert lines[0] == f"pakad {__version__}: test\\n{FORGED}\\r\\n\\tx"
+    assert FORGED not in lines
+    assert all(not line.startswith(FORGED) for line in lines)
+    # The fixed layout is unchanged: header, three counts, a blank line, then the headline.
+    assert [line.split()[0] for line in lines[1:4]] == ["expected", "collected", "matched"]
+    assert lines[4] == ""
+    assert "Reports:" in lines
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not allow line breaks in names")
+def test_file_and_directory_names_with_line_breaks_stay_on_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = tmp_path / "p.toml"
+    profile.write_text(MINIMAL_PROFILE, encoding="utf-8")
+    expected = tmp_path / f"e\n{FORGED}.csv"
+    expected.write_bytes(b"id\n1\n")
+    collected = tmp_path / "c\r\nx.csv"
+    collected.write_text("uid\n2\n", encoding="utf-8")
+    out = tmp_path / f"o\n{FORGED}"
+    assert main(reconcile_args(out, profile, expected, collected)) == ExitCode.FINDINGS
+    lines = capsys.readouterr().out.splitlines()
+    assert FORGED not in lines
+    assert not any(line.strip().startswith(FORGED) for line in lines)
+    assert any(f"e\\n{FORGED}.csv" in line for line in lines if line.startswith("  expected"))
+    assert any("c\\r\\nx.csv" in line for line in lines if line.startswith("  collected"))
+    reports = lines[lines.index("Reports:") + 1 :]
+    assert len(reports) == 5
+    assert all(line.startswith("  ") and "\\n" in line for line in reports)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not allow line breaks in names")
+def test_check_profile_and_example_keep_a_path_with_a_line_break_on_one_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / f"d\n{FORGED}"
+    assert main(["example", str(target)]) == ExitCode.OK
+    assert main(["check-profile", str(target / "profile.toml")]) == ExitCode.OK
+    lines = capsys.readouterr().out.splitlines()
+    assert FORGED not in lines
+    assert not any(line.startswith(FORGED) for line in lines)
+    assert lines[0].startswith("Wrote a synthetic example to ")
+    assert lines[1] == ""
+    assert lines[2].startswith("  pakad reconcile ")
+    assert lines[3].startswith(str(tmp_path).replace("\\", "\\\\"))
+    assert len(lines) == 4
+
+
+def test_an_error_message_with_a_line_break_in_a_header_stays_on_one_line(
+    write: Callable[[str, str | bytes], Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile = write("p.toml", MINIMAL_PROFILE)
+    expected = write("e.csv", "id\n1\n")
+    collected = tmp_path / "c.csv"
+    collected.write_text(f'"other\n{FORGED}"\n1\n', encoding="utf-8", newline="")
+    assert (
+        main(reconcile_args(tmp_path / "o", profile, expected, collected)) == ExitCode.INPUT_ERROR
+    )
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert f"other\\n{FORGED}" in err
+
+
+def test_an_internal_error_message_with_line_breaks_stays_on_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*_: object, **__: object) -> None:
+        msg = f"first\n{FORGED}\r\nthird"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("faithful_pakad.cli.reconcile", boom)
+    assert main(example_args(tmp_path)) == ExitCode.INTERNAL_ERROR
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0] == f"pakad: internal error: RuntimeError: first\\n{FORGED}\\r\\nthird"
+    assert lines[1].startswith("This is a bug.")
+    assert len(lines) == 2

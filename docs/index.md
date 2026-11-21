@@ -17,3 +17,7 @@ pakad reconciles an expected population against a collected evidence export and 
 - [Threat model](threat-model.md): what pakad protects and how.
 - [Releasing](releasing.md): how releases are made and verified.
 - [Architecture decision records](adr/index.md): significant decisions and the reasons for them.
+
+## Not affiliated
+
+pakad is not affiliated with, endorsed by, or sponsored by Microsoft. Product names in these pages, such as Microsoft Graph and PowerShell, appear only to describe the file formats pakad can read.

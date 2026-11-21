@@ -4,20 +4,28 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+from importlib.resources import files
 
+import jsonschema
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from faithful_pakad.errors import InputError
 from faithful_pakad.model import Finding, Kind, Record, Result, Side, SourceRef, Table
+from faithful_pakad.outputs import build_report
 from faithful_pakad.profile import parse_profile
-from faithful_pakad.reconcile import parse_timestamp, reconcile
+from faithful_pakad.reconcile import format_instant, parse_timestamp, reconcile
 from tests.conftest import MINIMAL_PROFILE
 
 AS_OF = datetime(2026, 11, 7, 12, tzinfo=UTC)
+REPORT_SCHEMA = json.loads(
+    files("faithful_pakad").joinpath("schema/report-v1.schema.json").read_text(encoding="utf-8")
+)
 Rows = Sequence[Mapping[str, str | None]]
 NO_PAGING = MINIMAL_PROFILE + "[collection]\npage_sizes = []\n"
 
@@ -31,7 +39,7 @@ def table(side: Side, rows: Rows, columns: tuple[str, ...] = ()) -> Table:
     return Table(side, f"{side}.csv", "0" * 64, 0, cols, records)
 
 
-def run(profile_text: str, expected: Rows, collected: Rows) -> Result:
+def run(profile_text: str, expected: Rows, collected: Rows, *, as_of: datetime = AS_OF) -> Result:
     profile = parse_profile(profile_text)
     exp = table(
         Side.EXPECTED, expected, (*profile.expected.key, *(c.expected for c in profile.compare))
@@ -41,7 +49,7 @@ def run(profile_text: str, expected: Rows, collected: Rows) -> Result:
         c for c in (profile.collection.source_column, profile.collection.captured_at_column) if c
     ]
     col = table(Side.COLLECTED, collected, tuple(dict.fromkeys(col_columns)))
-    return reconcile(profile, exp, col, as_of=AS_OF)
+    return reconcile(profile, exp, col, as_of=as_of)
 
 
 def kinds(result: Result) -> list[Kind]:
@@ -212,8 +220,12 @@ def test_empty_export_is_not_flagged_as_truncated() -> None:
 
 def test_empty_inputs_are_never_a_clean_result() -> None:
     result = run(NO_PAGING, [], [])
-    assert kinds(result) == [Kind.EMPTY_INPUT, Kind.EMPTY_INPUT]
-    assert [f.details["input"] for f in result.findings] == ["expected", "collected"]
+    assert kinds(result) == [Kind.NOTHING_RECONCILED]
+    assert result.findings[0].severity.value == "error"
+    one = run(NO_PAGING, [{"id": "1"}], [])
+    assert Kind.EMPTY_INPUT in kinds(one)
+    assert Kind.NOTHING_RECONCILED not in kinds(one)
+    assert only(one, Kind.EMPTY_INPUT).severity.value == "warning"
 
 
 def test_future_capture_times_are_invalid() -> None:
@@ -238,7 +250,32 @@ def test_missing_and_unexpected_show_the_raw_key() -> None:
 
 def test_unknowns_list_unconfigured_checks() -> None:
     checks = {u.check for u in run(NO_PAGING, [{"id": "1"}], [{"uid": "1"}]).unknowns}
-    assert checks == {"source coverage", "record freshness", "paging truncation"}
+    assert checks == {
+        "field comparison",
+        "source coverage",
+        "record freshness",
+        "paging truncation",
+    }
+
+
+def test_no_compare_fields_is_listed_as_not_checked_even_when_all_else_is_configured() -> None:
+    """PAKAD-C03: a presence-only profile must never read as a clean, complete pass."""
+    text = SOURCES.replace(
+        "page_sizes = []",
+        "page_sizes = [1000]\ncaptured_at_column = 'at'\nmax_age_hours = 24",
+    )
+    collected = [{"uid": "1", "domain": "a.example", "at": "2026-11-07T11:00:00Z"}]
+    collected.append({"uid": "2", "domain": "b.example", "at": "2026-11-07T11:00:00Z"})
+    result = run(text, [{"id": "1"}, {"id": "2"}], collected)
+    assert result.findings == ()
+    assert [u.check for u in result.unknowns] == ["field comparison"]
+    assert "[[compare]]" in result.unknowns[0].reason
+    assert "only key presence was compared" in result.unknowns[0].reason
+
+
+def test_configured_compare_is_not_listed_as_unchecked() -> None:
+    result = run(COMPARE, [{"id": "1", "status": "x"}], [{"uid": "1", "enabled": "x"}])
+    assert not any(u.check == "field comparison" for u in result.unknowns)
 
 
 def test_rules_describe_the_profile() -> None:
@@ -308,3 +345,213 @@ def test_results_are_deterministic(expected: list[str], collected: list[str]) ->
     first = run(NO_PAGING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
     again = run(NO_PAGING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
     assert first == again
+
+
+def test_a_file_that_says_it_is_one_page_is_a_finding_even_without_page_sizes() -> None:
+    """PAKAD-C02: the finding does not depend on the configured page sizes."""
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = table(Side.COLLECTED, [{"uid": "1"}])
+    incomplete = dataclasses.replace(col, incomplete_signals=("@odata.nextLink is present",))
+    result = reconcile(profile, exp, incomplete, as_of=AS_OF)
+    found = only(result, Kind.INCOMPLETE_EXPORT)
+    assert found.severity.value == "error"
+    assert found.details["input"] == "collected"
+    assert found.details["signal"] == "@odata.nextLink is present"
+    assert Kind.POSSIBLE_TRUNCATION not in kinds(result)
+    differs = dataclasses.replace(col, paging_signals=("count is 9, but the file holds 1",))
+    soft = only(reconcile(profile, exp, differs, as_of=AS_OF), Kind.POSSIBLE_TRUNCATION)
+    assert soft.severity.value == "warning"
+
+
+def test_a_table_with_no_records_and_no_columns_is_empty_not_a_missing_column() -> None:
+    """PAKAD-C09: an empty JSON export (``[]``) has no columns to check."""
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = Table(Side.COLLECTED, "collected.json", "0" * 64, 0, (), ())
+    result = reconcile(profile, exp, col, as_of=AS_OF)
+    assert kinds(result) == [Kind.MISSING, Kind.EMPTY_INPUT]
+    assert only(result, Kind.EMPTY_INPUT).details["file"] == "collected.json"
+
+
+def test_a_header_only_table_still_needs_the_profile_columns() -> None:
+    profile = parse_profile(NO_PAGING)
+    exp = table(Side.EXPECTED, [{"id": "1"}])
+    col = table(Side.COLLECTED, [], columns=("other",))
+    with pytest.raises(InputError, match="is missing 1 column: uid"):
+        reconcile(profile, exp, col, as_of=AS_OF)
+
+
+def test_an_equivalent_adds_an_accepted_form_and_never_hides_an_identical_value() -> None:
+    """PAKAD-C11: the collected value is not rewritten before the comparison."""
+    text = NO_PAGING + (
+        "[[compare]]\nexpected = 'enabled'\ncollected = 'enabled'\n"
+        "equivalents = { 'true' = 'active' }\n"
+    )
+    same = run(text, [{"id": "1", "enabled": "true"}], [{"uid": "1", "enabled": "true"}])
+    assert same.findings == ()
+    mapped = run(text, [{"id": "1", "enabled": "active"}], [{"uid": "1", "enabled": "true"}])
+    assert mapped.findings == ()
+    other = run(text, [{"id": "1", "enabled": "inactive"}], [{"uid": "1", "enabled": "true"}])
+    assert kinds(other) == [Kind.FIELD_MISMATCH]
+    # The mapping runs from the collected value to the expected value only.
+    reverse = run(text, [{"id": "1", "enabled": "true"}], [{"uid": "1", "enabled": "active"}])
+    assert kinds(reverse) == [Kind.FIELD_MISMATCH]
+
+
+@pytest.mark.parametrize(
+    ("configured", "shown"),
+    [("24", "24"), ("1.5", "1.5"), ("1.23456789", "1.23456789"), ("0.1", "0.1")],
+)
+def test_the_age_limit_is_reported_exactly_as_configured(configured: str, shown: str) -> None:
+    """PAKAD-C15: the report states the rule applied, not a rounded copy of it."""
+    text = FRESH.replace("max_age_hours = 24", f"max_age_hours = {configured}")
+    assert any(f"at most {shown} hours old" in rule for rule in parse_and_rules(text))
+    old = "2026-11-01T12:00:00Z"
+    stale = only(run(text, [{"id": "1"}], [{"uid": "1", "at": old}]), Kind.STALE_RECORD)
+    assert stale.details["max_age_hours"] == shown
+
+
+FOLDING = NO_PAGING + "[match]\nnormalize = ['strip', 'casefold']\n"
+RAW_KEYS = st.lists(
+    st.sampled_from(["a", "A", " a", "a ", "b", "B", "", " ", "ß", "SS", "ss", chr(0xA0)]),
+    max_size=8,
+)
+
+
+def oracle(raw: list[str]) -> dict[str, list[str]]:
+    """Group raw keys by normalized key, the straightforward way."""
+    groups: dict[str, list[str]] = {}
+    for value in raw:
+        norm = value.strip().casefold()
+        if norm:
+            groups.setdefault(norm, []).append(value)
+    return groups
+
+
+@given(expected=RAW_KEYS, collected=RAW_KEYS)
+def test_reconcile_agrees_with_a_simple_oracle_and_the_schema(
+    expected: list[str], collected: list[str]
+) -> None:
+    """PAKAD-C13: counts per kind, matched keys and the report schema, on random inputs."""
+    result = run(FOLDING, [{"id": k} for k in expected], [{"uid": k} for k in collected])
+    exp, col = oracle(expected), oracle(collected)
+    counts = {kind: kinds(result).count(kind) for kind in Kind}
+    assert counts[Kind.MISSING] == len(exp.keys() - col.keys())
+    assert counts[Kind.UNEXPECTED] == len(col.keys() - exp.keys())
+    assert result.matched_keys == len(exp.keys() & col.keys())
+    assert counts[Kind.BLANK_KEY] == sum(1 for k in [*expected, *collected] if not k.strip())
+    repeated = [g for side in (exp, col) for g in side.values() if len(g) > 1]
+    assert counts[Kind.AMBIGUOUS_KEY] == sum(1 for g in repeated if len(set(g)) > 1)
+    assert counts[Kind.DUPLICATE_KEY] == sum(1 for g in repeated if len(set(g)) == 1)
+
+    profile = parse_profile(FOLDING)
+    exp_table = table(Side.EXPECTED, [{"id": k} for k in expected], ("id",))
+    col_table = table(Side.COLLECTED, [{"uid": k} for k in collected], ("uid",))
+    report = build_report(
+        result,
+        profile,
+        exp_table,
+        col_table,
+        as_of=AS_OF,
+        generated_at=AS_OF,
+        run_id="0" * 32,
+    )
+    jsonschema.validate(report, REPORT_SCHEMA, format_checker=jsonschema.FormatChecker())
+
+
+@pytest.mark.parametrize(
+    ("offset_hours", "kind"),
+    [
+        (24, None),  # exactly the limit is still fresh
+        (24.0003, Kind.STALE_RECORD),  # one second over
+        (-5 / 60, None),  # exactly five minutes after the reference time is allowed
+        (-5 / 60 - 1 / 3600, Kind.INVALID_TIMESTAMP),  # one second later is not
+    ],
+)
+def test_freshness_boundaries(offset_hours: float, kind: Kind | None) -> None:
+    """PAKAD-C13: the age limit and the clock tolerance are inclusive."""
+    captured = (AS_OF - timedelta(hours=offset_hours)).isoformat()
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": captured}])
+    assert kinds(result) == ([kind] if kind else [])
+
+
+LATEST = datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
+EARLIEST = datetime(1, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("as_of", "captured", "kind"),
+    [
+        # PAK-6: the reviewer's case, the latest instant there is.
+        (LATEST, "9999-12-31T23:59:59Z", None),
+        (LATEST, "9999-12-31T23:59:59.999999Z", None),
+        (LATEST, "9999-12-31T00:00:00Z", None),
+        (LATEST, "9999-12-31T23:58:00Z", None),
+        (LATEST, "9999-12-30T23:59:59Z", Kind.STALE_RECORD),
+        (LATEST, "9999-12-31T23:59:59-05:00", Kind.INVALID_TIMESTAMP),  # not representable in UTC
+        (EARLIEST, "0001-01-01T00:00:00Z", None),
+        (EARLIEST, "0001-01-01T00:04:59Z", None),  # inside the five minute tolerance
+        (EARLIEST, "0001-01-01T00:05:01Z", Kind.INVALID_TIMESTAMP),
+        (EARLIEST, "0001-01-01T00:00:00+05:00", Kind.INVALID_TIMESTAMP),  # not representable
+        (datetime(2026, 11, 7, 12, tzinfo=UTC), "2026-11-07T17:30:00+05:30", None),
+        (
+            datetime(2026, 11, 7, 12, tzinfo=UTC),
+            "2026-11-07T17:36:00+05:30",
+            Kind.INVALID_TIMESTAMP,
+        ),
+        (
+            datetime(2026, 11, 7, 17, 30, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+            "2026-11-07T12:00:00Z",
+            None,
+        ),
+    ],
+)
+def test_freshness_at_the_ends_of_the_calendar_and_across_offsets(
+    as_of: datetime, captured: str, kind: Kind | None
+) -> None:
+    """PAK-6: comparing times never adds to them, so no accepted instant can overflow."""
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": captured}], as_of=as_of)
+    assert kinds(result) == ([kind] if kind else [])
+
+
+def test_parse_timestamp_returns_utc_and_refuses_what_cannot_be_put_in_utc() -> None:
+    parsed = parse_timestamp("2026-11-14T12:00:00+00:00:30", assume_utc=False)
+    assert parsed == datetime(2026, 11, 14, 11, 59, 30, tzinfo=UTC)
+    assert parsed is not None
+    assert parsed.utcoffset() == timedelta(0)
+    assert parse_timestamp("9999-12-31T23:59:59-05:00", assume_utc=False) is None
+    assert parse_timestamp("0001-01-01T00:00:00+05:00", assume_utc=True) is None
+
+
+def test_format_instant_is_utc_rfc_3339() -> None:
+    assert format_instant(datetime(2026, 11, 14, 12, tzinfo=UTC)) == "2026-11-14T12:00:00Z"
+    assert (
+        format_instant(
+            datetime(2026, 11, 14, 12, 0, 0, 500000, tzinfo=timezone(timedelta(hours=-8)))
+        )
+        == "2026-11-14T20:00:00.500000Z"
+    )
+    assert (
+        format_instant(datetime(2026, 11, 14, 12, tzinfo=UTC), timespec="seconds")
+        == "2026-11-14T12:00:00Z"
+    )
+    with pytest.raises(OverflowError):
+        format_instant(datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-5))))
+
+
+def test_as_of_outside_the_calendar_in_utc_is_refused() -> None:
+    profile = parse_profile(MINIMAL_PROFILE)
+    offset = timezone(timedelta(hours=-5))
+    with pytest.raises(ValueError, match="outside years 1 to 9999"):
+        reconcile(
+            profile,
+            table(Side.EXPECTED, []),
+            table(Side.COLLECTED, []),
+            as_of=datetime(9999, 12, 31, 23, tzinfo=offset),
+        )
+
+
+def test_the_stale_record_details_use_the_same_utc_form_as_the_report() -> None:
+    result = run(FRESH, [{"id": "1"}], [{"uid": "1", "at": "2026-11-01T12:00:00+05:30"}])
+    assert only(result, Kind.STALE_RECORD).details["captured_at"] == "2026-11-01T06:30:00Z"

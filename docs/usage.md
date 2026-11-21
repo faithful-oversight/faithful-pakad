@@ -27,21 +27,21 @@ pakad reconcile -p PROFILE -e EXPECTED -c COLLECTED -o OUT_DIR [options]
 | `-c`, `--collected` | The export that was collected. CSV or JSON. |
 | `-o`, `--out-dir` | Directory for the reports. Created if needed. |
 | `-f`, `--format` | Comma-separated list of `html`, `json`, `csv`, `md`. Default: all four. |
-| `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. Default: now. |
-| `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. |
+| `--as-of` | Reference time for freshness checks, in ISO 8601 with a time zone, for example `2026-11-07T12:00:00Z`. It is recorded in the reports in UTC, ending in `Z`. A time that falls outside years 1 to 9999 once converted to UTC is refused. Default: now. |
+| `--fail-on` | When to exit with code 1: `any` finding (default), only `error` findings, or `never`. `error` ignores warnings, including `empty-input` for a single empty input. Two empty inputs (`nothing-reconciled`) and an incomplete export (`incomplete-export`) are errors, so they exit 1 under `any` and `error`; only `never` exits 0. |
 | `--max-bytes` | Refuse input files larger than this many bytes. Default: 268435456 (256 MiB). |
-| `--force` | Overwrite report files that already exist. Without it, pakad refuses. |
+| `--force` | Overwrite report files that already exist. Without it, pakad refuses. Even with it, pakad refuses to overwrite one of its own inputs (see below). |
 
 ### File formats
 
 pakad picks the format from the file extension: `.csv`, `.tsv`, and `.txt` are read as delimited text, and `.json` as JSON. Set `format` in the profile to override.
 
 - **CSV:** the first row is the header. Values are never converted, so `000123` stays `000123`. A row with fewer fields than the header has the missing values recorded as absent, which differs from empty. A row with more fields than the header stops the run with an input error that names the line, because pakad cannot tell which value belongs to which column.
-- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested arrays and objects become compact JSON text, up to 64 levels of arrays and objects inside one value. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable. The same holds for CSV: if the configured `encoding` (for example `utf-7` or `unicode_escape`) decodes to an unpaired surrogate, the error names the file, line, and column.
+- **JSON:** an array of objects, or an object with a `value` or `records` array, which covers Microsoft Graph and many PowerShell exports. If such an object carries a non-empty `@odata.nextLink`, pakad reports an `incomplete-export` error, because the file is one page of a larger result. An `@odata.count` or `count` that differs from the number of records gives a `possible-truncation` warning. Numbers keep the exact text from the file, so `1.0` stays `1.0`. Booleans become `true` or `false`, `null` is absent, and nested arrays and objects become compact JSON text, up to 64 levels of arrays and objects inside one value. Repeated property names and unpaired surrogate escapes such as `\ud800` are input errors, because pakad will not alter an identifier to make it readable. The same holds for CSV: if the configured `encoding` (for example `utf-7` or `unicode_escape`) decodes to an unpaired surrogate, the error names the file, line, and column.
 
 ### Report files
 
-pakad writes the reports you choose with `--format`, then `pakad-manifest.json`, into the output directory. Files are readable only by your user account on Linux and macOS. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set.
+pakad writes the reports you choose with `--format`, then `pakad-manifest.json`, into the output directory. Files are readable only by your user account on Linux and macOS. Without `--force`, pakad never replaces an existing file, even one created while it runs. With `--force`, it moves the old reports aside first and puts them back if anything fails, so the directory holds either the old set or the new set. Before it reads anything, pakad checks that none of the report or manifest names it is about to write is the profile, the expected input, or the collected input, whether by the same path, a symbolic link, or a hard link. If one is, it exits with an input error (3) and changes nothing, even with `--force`, because a source file must never be replaced by a generated report. An input that shares a name with a report you did not select with `--format` is not affected.
 
 Each file is complete before it appears, on file systems with hard links. On file systems without them, such as FAT and exFAT on many USB drives, each file is visible while pakad writes it, and pakad removes it again if writing fails. In both cases the manifest is written last, so its presence means every other file is in place.
 
@@ -75,7 +75,7 @@ GitHub Actions:
 ```yaml
 - name: Reconcile evidence
   run: |
-    pipx install faithful-pakad
+    pipx install git+https://github.com/faithful-oversight/faithful-pakad@v0.1.2
     pakad reconcile -p evidence/profile.toml -e evidence/roster.csv \
       -c evidence/export.csv -o reports --fail-on error
 - name: Keep the reports

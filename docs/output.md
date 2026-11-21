@@ -11,7 +11,7 @@ Every run produces one report document, and every output format is rendered from
 | Findings | Each discrepancy, grouped by kind, with a plain-language explanation and a next step. |
 | Evidence | The SHA-256 hash of each input and of the profile, the rules applied, and how to verify the hashes. |
 
-The report also records the reference time used for freshness checks, the time it was generated, and the pakad version.
+The report also records the reference time used for freshness checks, the time it was generated, and the pakad version. Both times are written in UTC as RFC 3339 text ending in `Z`, for example `2026-11-07T12:00:00Z`, whatever form `--as-of` was given in (an offset such as `+05:30` or `+00:00:30` is converted, and a fraction of a second is kept). The same form is used for the capture time shown in a stale record's details.
 
 ## Finding kinds
 
@@ -24,10 +24,12 @@ The report also records the reference time used for freshness checks, the time i
 | `blank-key` | error | A record's key is absent or empty, so it cannot be matched. |
 | `field-mismatch` | error | A matched pair has different values in a compared field. |
 | `missing-source` | error | An expected source contributed no collected records. |
+| `incomplete-export` | error | A JSON export says it is one page of a larger result (a non-empty `@odata.nextLink`), so the population it holds is incomplete. |
+| `nothing-reconciled` | error | Both inputs have no records, so nothing was compared. |
 | `stale-record` | warning | A capture time is older than the profile allows. |
 | `invalid-timestamp` | warning | A capture time is absent, unusable, or more than five minutes after the reference time. |
-| `possible-truncation` | warning | A record count is an exact multiple of a common page size. |
-| `empty-input` | warning | An input has a header but no records, which would otherwise look like a clean result. |
+| `possible-truncation` | warning | A record count is an exact multiple of a common page size, or a JSON file states a total (`@odata.count` or `count`) that differs from the records it holds. |
+| `empty-input` | warning | One input has a header but no records, or is a JSON export with no records (`[]` or `{"value": []}`), which would otherwise look like a clean result. When both inputs are empty, the finding is `nothing-reconciled` instead. |
 
 A finding is a fact about the inputs, not a judgment. For example, `unexpected` means the record is unmatched, not that the access is unauthorized.
 
@@ -48,8 +50,8 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 
 ```json
 {
-  "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.1"},
+  "schema_version": "1.1",
+  "tool": {"name": "pakad", "version": "0.1.2"},
   "summary": {"expected_records": 9, "collected_records": 12, "matched_keys": 8,
               "errors": 7, "warnings": 2, "findings_by_kind": {"missing": 1, "...": 0}},
   "findings": [
@@ -68,6 +70,7 @@ Keys in findings are shown after normalization, which is the form pakad matched 
 
 Compatibility promise:
 
+- Schema 1.1 added the `incomplete-export` and `nothing-reconciled` finding kinds. Their counts in `findings_by_kind` are optional in the schema, so a 1.0 report still validates against it.
 - Within major version 1, a release may add optional properties or new finding kinds. Each such change raises the minor `schema_version`, for example from `1.0` to `1.1`, and ships the matching schema.
 - Existing properties and finding kinds are never removed or renamed within a major version. A breaking change gets a new major schema version and a new major pakad release.
 - The schema is strict, so a `1.0` validator rejects a `1.1` report's new fields. Validate each report with the schema for its `schema_version`, which `pakad schema` from the same pakad version prints. Consumers that read reports without validating should ignore properties and finding kinds they do not know.
@@ -84,9 +87,9 @@ Every run also writes `pakad-manifest.json`, after every other file. It records 
 {
   "$schema": "https://faithful-oversight.github.io/faithful-pakad/schema/manifest-v1.schema.json",
   "schema_version": "1.0",
-  "tool": {"name": "pakad", "version": "0.1.1"},
+  "tool": {"name": "pakad", "version": "0.1.2"},
   "run_id": "4f3c1e0a9b7d4c2e8f6a5b3c1d0e9f8a",
-  "generated_at": "2026-11-07T12:00:00+00:00",
+  "generated_at": "2026-11-07T12:00:00Z",
   "files": [
     {
       "name": "pakad-findings.csv",
@@ -109,7 +112,7 @@ The manifest covers only the files from its own run. A report file it does not l
 
 ## Invisible characters
 
-Input values can contain characters that change how text looks rather than what it says, such as terminal escape sequences or right-to-left override marks that make `exe.txt` display as `txt.exe`. The HTML, Markdown, and CSV reports and the terminal show these as visible escapes. That covers control characters, zero-width and other format characters, line and paragraph separators, bidirectional marks, characters that draw nothing, tag characters, and variation selectors. A character in the Basic Multilingual Plane shows as `\u202e`; any other shows with eight digits, such as `\U000e0041`. Tabs and line breaks are kept in the files, and the terminal shows a carriage return and a tab as `\r` and `\t` so they cannot move the cursor. The JSON report keeps the exact values.
+Input values can contain characters that change how text looks rather than what it says, such as terminal escape sequences or right-to-left override marks that make `exe.txt` display as `txt.exe`. The HTML, Markdown, and CSV reports and the terminal show these as visible escapes. That covers control characters, zero-width and other format characters, line and paragraph separators, bidirectional marks, characters that draw nothing, tag characters, and variation selectors. A character in the Basic Multilingual Plane shows as `\u202e`; any other shows with eight digits, such as `\U000e0041`. Tabs and line breaks are kept in the files, and the terminal shows a carriage return and a tab as `\r` and `\t` so they cannot move the cursor. In the terminal summary, error messages, and printed paths, a line feed inside a name (a profile name, a file name, a column header) is also shown as `\n`, so a name always stays on its own line and cannot add a line of its own. The JSON report keeps the exact values.
 
 Input filenames are treated the same way. A byte in a filename that is not valid UTF-8, such as `0xff`, is recorded in the reports and the manifest as `\xff`, and the run still completes.
 
@@ -119,7 +122,7 @@ People-facing reports join composite keys with ` | `. A key value that itself co
 
 ## Large reports
 
-The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding.
+The HTML and Markdown reports show at most 500 findings of each kind, and say how many more there are. The JSON and CSV outputs always hold every finding. The CSV, HTML, and Markdown reports list at most 20 source references for one finding, followed by a count of the rest, so one key repeated thousands of times cannot fill a spreadsheet cell past its limit of 32,767 characters. The JSON report always lists every reference.
 
 ## CSV findings
 

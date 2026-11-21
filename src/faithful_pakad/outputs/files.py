@@ -21,6 +21,9 @@ Guarantees, stated exactly:
   set.
 - New files are readable only by the current user on Linux and macOS. A
   symbolic link at a target name is replaced, never followed.
+- ``refuse_input_overwrite`` stops a run whose report or manifest name is one
+  of its own inputs (the same path, a symbolic link, or a hard link), even with
+  ``force``, so a source file is never replaced by a generated report.
 
 One pakad process at a time may write to an output directory. Two runs writing
 to the same directory at once can remove or restore each other's files.
@@ -41,7 +44,7 @@ from typing import TYPE_CHECKING
 from faithful_pakad.errors import PakadError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
 
 def write_files(directory: Path, files: Mapping[str, str], *, force: bool) -> list[Path]:
@@ -57,7 +60,12 @@ def write_files(directory: Path, files: Mapping[str, str], *, force: bool) -> li
         msg = f"cannot create {directory}: {exc.strerror}"
         raise PakadError(msg) from exc
     targets = [directory / name for name in files]
-    _check_targets(targets, force=force)
+    try:
+        _check_targets(targets, force=force)
+    except OSError as exc:
+        # For example a directory that exists but cannot be searched.
+        msg = f"cannot check {directory} for existing reports: {exc.strerror}"
+        raise PakadError(msg) from exc
 
     staged: list[Path] = []
     try:
@@ -74,6 +82,51 @@ def write_files(directory: Path, files: Mapping[str, str], *, force: bool) -> li
         for temp in staged:
             temp.unlink(missing_ok=True)
     return targets
+
+
+def refuse_input_overwrite(
+    inputs: Mapping[str, Path], directory: Path, names: Iterable[str]
+) -> None:
+    """Refuse a run that would replace one of its own inputs with a report file.
+
+    An input and a target are the same file when their resolved paths are equal
+    (this covers a symbolic link on either side and an output directory reached
+    through a link, even before the target exists) or when ``os.path.samefile``
+    says they share a device and inode (this covers hard links). The check does
+    not depend on ``force``: a source file is never a place to publish.
+
+    Args:
+        inputs: Role of each input (for example ``"expected input"``) to its path.
+        directory: The output directory, which need not exist yet.
+        names: The file names this run will publish, manifest included.
+
+    Raises:
+        PakadError: An input is one of the files to be published.
+    """
+    try:
+        planned_directory = Path(os.path.realpath(directory))
+        for name in names:
+            target = directory / name
+            for role, source in inputs.items():
+                if _same_file(source, target, planned_directory / name):
+                    msg = (
+                        f"the {role} {source} would be overwritten by the report file "
+                        f"{target}; choose another output directory"
+                    )
+                    raise PakadError(msg)
+    except OSError as exc:
+        msg = f"cannot compare the inputs with the output directory {directory}: {exc.strerror}"
+        raise PakadError(msg) from exc
+
+
+def _same_file(source: Path, target: Path, planned: Path) -> bool:
+    resolved = Path(os.path.realpath(source))
+    if resolved in (planned, Path(os.path.realpath(target))):
+        return True
+    try:
+        return source.samefile(target)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
 
 
 def _check_targets(targets: list[Path], *, force: bool) -> None:

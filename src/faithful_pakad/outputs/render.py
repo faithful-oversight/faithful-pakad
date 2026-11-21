@@ -22,7 +22,13 @@ from faithful_pakad.model import KIND_ORDER, Kind
 from faithful_pakad.normalize import count
 from faithful_pakad.outputs import MANIFEST_SCHEMA_ID, MANIFEST_SCHEMA_VERSION, format_ref
 from faithful_pakad.outputs.guidance import GUIDANCE
-from faithful_pakad.outputs.safety import csv_cell, escape_markdown, terminal, visible
+from faithful_pakad.outputs.safety import (
+    csv_cell,
+    escape_markdown,
+    terminal,
+    terminal_line,
+    visible,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -35,6 +41,13 @@ MAX_SHOWN_PER_KIND = 500
 """HTML and Markdown reports show at most this many findings of each kind.
 
 The JSON and CSV outputs always hold every finding.
+"""
+
+MAX_REFS_SHOWN = 20
+"""CSV, HTML, and Markdown list at most this many source references for one finding.
+
+A key repeated thousands of times would otherwise put every reference in one cell,
+past the 32,767-character limit of a spreadsheet cell. The JSON report keeps them all.
 """
 
 LIMIT_NOTE = (
@@ -62,7 +75,10 @@ def _key_text(key: list[str] | None) -> str:
 
 
 def _refs_text(refs: list[dict[str, Any]]) -> str:
-    return "; ".join(format_ref(r) for r in refs) or "—"
+    shown = "; ".join(format_ref(r) for r in refs[:MAX_REFS_SHOWN])
+    if len(refs) > MAX_REFS_SHOWN:
+        shown += f"; and {len(refs) - MAX_REFS_SHOWN:,} more (all are in pakad-report.json)"
+    return shown or "—"
 
 
 def _details_text(details: dict[str, str]) -> str:
@@ -86,8 +102,13 @@ def _status(report: Report) -> tuple[str, str]:
     full pass when part of the review was skipped.
     """
     s = report["summary"]
+    by_kind = s["findings_by_kind"]
+    if by_kind.get("nothing-reconciled"):
+        return "fail", "Nothing was reconciled: both inputs are empty"
     if s["errors"]:
         found = f"{count(s['errors'], 'error')} and {count(s['warnings'], 'warning')}"
+        if by_kind.get("incomplete-export"):
+            return "fail", f"An input is incomplete (more pages exist). {found} need review"
         return "fail", f"{found} need review"
     if s["warnings"]:
         return "warn", f"No errors. {count(s['warnings'], 'warning')} need review"
@@ -103,10 +124,10 @@ def _shown(findings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
 
 
 def _hidden_note(hidden: int) -> str:
-    return (
-        f"{count(hidden, 'more finding')} of this kind are in pakad-report.json "
-        "and pakad-findings.csv."
-    )
+    where = "in pakad-report.json and pakad-findings.csv"
+    if hidden == 1:
+        return f"1 more finding of this kind is {where}."
+    return f"{hidden:,} more findings of this kind are {where}."
 
 
 def _summary_rows(report: Report) -> list[tuple[str, str]]:
@@ -463,14 +484,21 @@ def render_all(report: Report, formats: list[str]) -> dict[str, str]:
 
 
 def terminal_summary(report: Report) -> str:
-    """Plain-text summary for the terminal."""
+    """Plain-text summary for the terminal.
+
+    Every name that came from a file or a profile is made single-line before it
+    is placed into the layout, so no name can add a line of its own.
+    """
     s: dict[str, Any] = report["summary"]
     inputs = report["inputs"]
+    name = terminal_line(report["profile"]["name"])
+    expected_file = terminal_line(inputs["expected"]["file"])
+    collected_file = terminal_line(inputs["collected"]["file"])
     _, headline = _status(report)
     lines = [
-        f"pakad {report['tool']['version']}: {report['profile']['name']}",
-        f"  expected   {s['expected_records']:>7} records  {inputs['expected']['file']}",
-        f"  collected  {s['collected_records']:>7} records  {inputs['collected']['file']}",
+        f"pakad {report['tool']['version']}: {name}",
+        f"  expected   {s['expected_records']:>7} records  {expected_file}",
+        f"  collected  {s['collected_records']:>7} records  {collected_file}",
         f"  matched    {s['matched_keys']:>7} keys",
         "",
         f"{headline}.",

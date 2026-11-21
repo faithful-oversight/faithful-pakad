@@ -31,7 +31,7 @@ The **Evidence** section lists the SHA-256 hash of each input and of the profile
 
 If any hash differs, the report was not produced from those files.
 
-To reproduce the report yourself, run the same pakad version with the same profile and inputs, keeping the same file names, and pass the report's `as_of` value with `--as-of`. The reference time is recorded at full precision, so the findings will be identical. Only the generation time and run ID change. The report records the profile's hash, not the profile itself, so the profile must be kept with the inputs.
+To reproduce the report yourself, run the same pakad version with the same profile and inputs, keeping the same file names, and pass the report's `as_of` value with `--as-of`. The reference time is recorded in UTC at full precision, so the findings will be identical. Only the generation time and run ID change. The report records the profile's hash, not the profile itself, so the profile must be kept with the inputs.
 
 All files from one run share a run ID. If the HTML, JSON, CSV, and Markdown files you received show different run IDs, they did not come from the same run.
 

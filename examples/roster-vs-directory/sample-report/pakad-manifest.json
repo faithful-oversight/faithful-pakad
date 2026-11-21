@@ -3,30 +3,30 @@
   "schema_version": "1.0",
   "tool": {
     "name": "pakad",
-    "version": "0.1.0"
+    "version": "0.1.2"
   },
-  "run_id": "7054929deee74c35b006ab44605a4654",
-  "generated_at": "2026-11-07T23:24:18+00:00",
+  "run_id": "73174f3b8e7e4ecfa368e4425409a733",
+  "generated_at": "2026-11-19T03:47:30Z",
   "files": [
     {
       "name": "pakad-report.html",
-      "bytes": 13133,
-      "sha256": "496ac464dff8e184900a0ca64920145c663ae9155de41b797f60d7808b942e08"
+      "bytes": 13118,
+      "sha256": "fe4dfb3f364fe4e17fc13d28daed602f96263651681aea62d26b75936e9058b6"
     },
     {
       "name": "pakad-report.json",
-      "bytes": 6739,
-      "sha256": "b62637c26e34b4b1a763951c56452e1f2fdfa03323a985f88ed45f1905883732"
+      "bytes": 6785,
+      "sha256": "69090595c0135db51c0ef9652fc2a0cc4a1c0ee0d99430df6022f624c05309cf"
     },
     {
       "name": "pakad-findings.csv",
-      "bytes": 2037,
-      "sha256": "13a5667d8b9dfc741f78c05bbaea99357b41dca4807d8c66eefcf3f203146ea4"
+      "bytes": 2032,
+      "sha256": "1fe316e23c997ea8a1bee514989e30c038ab4b6579056951ab6e5c5a9340e841"
     },
     {
       "name": "pakad-report.md",
-      "bytes": 5945,
-      "sha256": "186421fc4857ce3e416324fb17811b08b1daf312a21cbd23b43bb2fdb08d6780"
+      "bytes": 5930,
+      "sha256": "e6d09c9198feaaf2594b67149ec323de4df7edc8f3b50fd77cff44cebf691250"
     }
   ]
 }
