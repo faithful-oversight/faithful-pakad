@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Install instructions now point to PyPI (`pipx install faithful-pakad`), with the GitHub install kept as a development-version fallback.
+
 ## [0.1.2] - 2026-11-14
 
 ### Fixed

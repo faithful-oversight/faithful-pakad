@@ -5,13 +5,12 @@ This walk-through takes about five minutes. It uses synthetic data, so nothing h
 ## 1. Install
 
 ```shell
-pipx install git+https://github.com/faithful-oversight/faithful-pakad
+pipx install faithful-pakad
+pipx ensurepath
 pakad --version
 ```
 
-For a fixed version, add a tag, for example `...faithful-pakad@v0.1.2`. If `pakad` is not found, run `pipx ensurepath` once and open a new terminal.
-
-PyPI publishing is being set up. Until a PyPI release exists, install from GitHub as shown.
+`pipx ensurepath` puts pipx's tools on your PATH; run it once and open a new terminal. With pip, use `pip install faithful-pakad`. For a fixed version, use `faithful-pakad==0.1.2`. To try the development version, install from GitHub: `pipx install git+https://github.com/faithful-oversight/faithful-pakad`.
 
 pakad runs on Windows, macOS, and Linux with Python 3.11 or newer.
 
