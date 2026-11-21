@@ -3,9 +3,10 @@
 **Evidence Population Reconciler.** Reconcile an expected population against a collected evidence export. See exactly what is missing, extra, duplicated, ambiguous, or stale, with every finding traced back to its source row.
 
 [![CI](https://github.com/faithful-oversight/faithful-pakad/actions/workflows/ci.yml/badge.svg)](https://github.com/faithful-oversight/faithful-pakad/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/faithful-pakad)](https://pypi.org/project/faithful-pakad/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**Status:** version 0.1.2, beta. The tests use synthetic data only, and run in continuous integration on Linux (Python 3.11 to 3.14), Windows, and macOS. No claim is made that it has been validated against real exports from production systems, so check its first reports against your own data. See [Limitations](docs/limitations.md). Documentation is in the [docs folder](docs/index.md).
+**Status:** version 0.1.2, beta, available on PyPI. The tests use synthetic data only, and run in continuous integration on Linux (Python 3.11 to 3.14), Windows, and macOS. No claim is made that it has been validated against real exports from production systems, so check its first reports against your own data. See [Limitations](docs/limitations.md). Documentation is on the [docs site](https://faithful-oversight.github.io/faithful-pakad/) and in the [docs folder](docs/index.md).
 
 ![A pakad HTML report showing summary cards and findings grouped by kind](docs/images/report-example.png)
 
@@ -60,12 +61,13 @@ The full [sample reports](examples/roster-vs-directory/sample-report/) are commi
 pakad needs Python 3.11 or newer and has no runtime dependencies.
 
 ```shell
-pipx install git+https://github.com/faithful-oversight/faithful-pakad
+pipx install faithful-pakad
+pipx ensurepath
 ```
 
-For a fixed version, add a tag, for example `...faithful-pakad@v0.1.2`. If `pakad` is not found afterward, run `pipx ensurepath` once and open a new terminal.
+`pipx ensurepath` puts pipx's tool folder on your PATH; run it once and open a new terminal. With pip, use `pip install faithful-pakad`. For a fixed version, use `faithful-pakad==0.1.2`.
 
-PyPI publishing is being set up. Until a PyPI release exists, install from GitHub as shown. To work from a clone, run `pipx install .` in the repository.
+To try the development version from GitHub, run `pipx install git+https://github.com/faithful-oversight/faithful-pakad`. To work from a clone, run `pipx install .` in the repository.
 
 ## Try it in one minute
 
