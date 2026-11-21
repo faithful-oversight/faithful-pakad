@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Shared code now comes from the `faithful-core` library, pinned to an exact version.
+- The refusal to replace a file the command reads has new wording: `is the same file as the expected input ...; a file that is read is never replaced, even with --force; choose another output location`. When the file system cannot show whether an output is such a file, the command refuses instead of going on.
+- A refusal because a report file exists now ends `use --force to replace it` (or `them`).
+- Two write errors now say `files` where they said `reports`: `cannot write files in DIRECTORY` and `cannot check DIRECTORY for existing files`.
 - Install instructions now point to PyPI (`pipx install faithful-pakad`), with the GitHub install kept as a development-version fallback.
 
 ## [0.1.2] - 2026-11-14

@@ -1,6 +1,6 @@
 # Architecture
 
-pakad is a command-line tool and a Python library with no runtime dependencies beyond the Python standard library.
+pakad is a command-line tool and a Python library with one runtime dependency beyond the Python standard library: [faithful-core](https://github.com/faithful-oversight/faithful-core), the shared foundation library of the Faithful Oversight tools, pinned to an exact version.
 
 ```text
 profile.toml ──► profile   strict validation, typed settings
@@ -23,8 +23,22 @@ inputs       ──► readers   CSV and JSON to text-only tables, with source l
 | `normalize` | Named, explicit normalization steps. |
 | `reconcile` | Matching and every check. No file access, no output, no clock. |
 | `model` | Data types and the finding kinds, which are part of the output contract. |
-| `outputs` | Build the report document, render each format with format-specific escaping, and write files all at once. |
+| `errors` | `PakadError`, which is faithful-core's `FaithfulError`, and the error classes pakad uses: `InputError`, `ProfileError`, and `OutputError`. |
+| `names` | Turn input paths into names that are safe to put in reports and error messages. |
+| `outputs` | Build the report document, render each format, and write the files all at once, through faithful-core. |
 | `cli` | Command-line interface. |
+
+## The shared library
+
+faithful-core holds the code that every Faithful Oversight tool needs to behave the same way. pakad uses it for:
+
+- the base error and the exit codes;
+- making untrusted text safe for the terminal, CSV, Markdown, and HTML;
+- printing that never changes an exit code;
+- publishing a set of files all together, without replacing a file the tool reads;
+- small helpers for the report renderers: the content security policy, HTML and Markdown escaping, Markdown tables, plural nouns, and JSON output.
+
+The library's own pages describe how each of these works. pakad's tests cover them through the commands, and the library's tests cover them directly. The decision is recorded in [ADR 5](adr/0005-shared-core-library.md).
 
 ## Rules the design follows
 

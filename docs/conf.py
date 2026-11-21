@@ -56,6 +56,7 @@ NAVIGATION = {
         "0002-python-core",
         "0003-matching-semantics",
         "0004-documentation-site",
+        "0005-shared-core-library",
     ],
 }
 """Page order for the site navigation, keyed by the page that lists them."""
