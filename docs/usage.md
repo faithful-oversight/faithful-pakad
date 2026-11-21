@@ -75,7 +75,7 @@ GitHub Actions:
 ```yaml
 - name: Reconcile evidence
   run: |
-    pipx install git+https://github.com/faithful-oversight/faithful-pakad@v0.1.2
+    pipx install faithful-pakad==0.1.2
     pakad reconcile -p evidence/profile.toml -e evidence/roster.csv \
       -c evidence/export.csv -o reports --fail-on error
 - name: Keep the reports
