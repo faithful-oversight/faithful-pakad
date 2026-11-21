@@ -218,7 +218,11 @@ def test_arbitrary_bytes_never_crash(
 TEXT = st.text(st.characters(codec="utf-8"), max_size=20)
 
 
-@settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
+# Each example writes and reads a file, so its time depends on disk and runner load;
+# a per-example deadline only makes the test flaky without testing anything.
+@settings(
+    max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture]
+)
 @given(rows=st.lists(st.tuples(TEXT, TEXT), min_size=1, max_size=20))
 def test_csv_round_trip_preserves_values(
     write: Callable[[str, str | bytes], Path], rows: list[tuple[str, str]]
