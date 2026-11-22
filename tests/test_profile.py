@@ -11,8 +11,9 @@ import threading
 from typing import TYPE_CHECKING
 
 import pytest
+from faithful_core.exitcodes import ExitCode
 
-from faithful_pakad.cli import ExitCode, main
+from faithful_pakad.cli import main
 from faithful_pakad.errors import ProfileError
 from faithful_pakad.profile import DEFAULT_PAGE_SIZES, load_profile, parse_profile
 from tests.conftest import EXAMPLE_DIR, MINIMAL_PROFILE

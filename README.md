@@ -58,7 +58,7 @@ The full [sample reports](examples/roster-vs-directory/sample-report/) are commi
 
 ## Install
 
-pakad needs Python 3.11 or newer and has no runtime dependencies.
+pakad needs Python 3.11 or newer and has one runtime dependency, [faithful-core](https://github.com/faithful-oversight/faithful-core), the shared foundation library of the Faithful Oversight tools. The installer fetches it for you.
 
 ```shell
 pipx install faithful-pakad

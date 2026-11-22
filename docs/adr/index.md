@@ -6,3 +6,4 @@ Each record explains one significant decision: its context, the decision, and it
 - [2. Python core with a versioned output contract](0002-python-core.md)
 - [3. Exact, explicit matching](0003-matching-semantics.md)
 - [4. Documentation as code, published with Sphinx](0004-documentation-site.md)
+- [5. One shared core library for the Faithful Oversight tools](0005-shared-core-library.md)

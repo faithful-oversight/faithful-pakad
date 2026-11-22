@@ -12,6 +12,8 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from faithful_core.render import plural
+
 from faithful_pakad.errors import InputError
 from faithful_pakad.model import (
     KIND_ORDER,
@@ -22,7 +24,7 @@ from faithful_pakad.model import (
     Table,
     Unknown,
 )
-from faithful_pakad.normalize import count, normalize
+from faithful_pakad.normalize import normalize
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -156,7 +158,7 @@ def _require_columns(table: Table, needed: Iterable[str]) -> None:
         available = ", ".join(table.columns) or "none"
         msg = (
             f"{table.path or table.file} ({table.side} input) is missing "
-            f"{count(len(missing), 'column')}: {', '.join(missing)}; "
+            f"{plural(len(missing), 'column')}: {', '.join(missing)}; "
             f"available: {available}"
         )
         raise InputError(msg)
@@ -270,7 +272,7 @@ def _compare(
             Unknown(
                 check="field comparison",
                 reason=(
-                    f"Skipped for {count(skipped, 'matched key')} with duplicate records, "
+                    f"Skipped for {plural(skipped, 'matched key')} with duplicate records, "
                     "because the records to compare cannot be chosen safely."
                 ),
             )

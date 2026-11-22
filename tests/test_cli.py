@@ -17,9 +17,10 @@ from typing import TYPE_CHECKING
 
 import jsonschema
 import pytest
+from faithful_core.exitcodes import ExitCode
 
 from faithful_pakad import __version__
-from faithful_pakad.cli import ExitCode, main
+from faithful_pakad.cli import main
 from tests.conftest import EXAMPLE_DIR, MINIMAL_PROFILE
 
 if TYPE_CHECKING:
@@ -188,7 +189,7 @@ def test_reports_are_private_and_never_silently_overwritten(
     if os.name == "posix":
         assert stat.S_IMODE((tmp_path / "pakad-report.json").stat().st_mode) == 0o600
     assert main(example_args(tmp_path, "-f", "json")) == ExitCode.INPUT_ERROR
-    assert "already exist; use --force to replace" in capsys.readouterr().err
+    assert "already exist; use --force to replace them" in capsys.readouterr().err
     assert main(example_args(tmp_path, "-f", "json", "--force")) == ExitCode.FINDINGS
 
 
@@ -278,7 +279,7 @@ def test_no_partial_reports_when_a_target_exists(
     assert main(example_args(tmp_path)) == ExitCode.INPUT_ERROR
     assert sorted(p.name for p in tmp_path.iterdir()) == ["pakad-report.md"]
     assert (tmp_path / "pakad-report.md").read_text() == "old evidence"
-    assert "already exists; use --force" in capsys.readouterr().err
+    assert "already exists; use --force to replace it" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("fail_after", [0, 1, 3, 5])
@@ -604,7 +605,11 @@ def test_a_closed_pipe_while_printing_help_or_a_version_is_not_an_error(
 ) -> None:
     monkeypatch.setattr(sys, "stdout", ClosedPipe())
     assert main(["--version"]) == ExitCode.OK
+    sys.stdout.close()  # the null device that replaced the closed pipe
+    # A new run starts with a new standard output, as a new process would.
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
     assert main([]) == ExitCode.USAGE
+    sys.stdout.close()
 
 
 def run_pakad(
@@ -801,8 +806,11 @@ def test_a_report_target_that_is_an_input_is_refused_even_with_force(
     args = alias_run(out, sources["profile"], sources["expected"], sources["collected"])
     assert main([*args, *(["--force"] if force else [])]) == ExitCode.INPUT_ERROR
     err = capsys.readouterr().err
-    assert "would be overwritten by the report file" in err
-    assert side in err.split("overwritten")[0]
+    role = {"profile": "profile", "expected": "expected input", "collected": "collected input"}[
+        side
+    ]
+    assert f"is the same file as the {role} " in err
+    assert "a file that is read is never replaced, even with --force" in err
     assert {path: path.read_bytes() for path in sources.values()} == before
     assert sorted(p.name for p in out.iterdir()) == [name]
 
@@ -862,7 +870,7 @@ def test_an_input_that_is_a_symlink_to_a_report_target_is_refused(
     link.symlink_to(real_target)
     args = alias_run(out, profile, link, collected, *(["--force"] if force else []))
     assert main(args) == ExitCode.INPUT_ERROR
-    assert "would be overwritten" in capsys.readouterr().err
+    assert "a file that is read is never replaced" in capsys.readouterr().err
     assert real_target.read_bytes() == b"id\n1\n"
     assert link.is_symlink()
 
@@ -877,7 +885,7 @@ def test_a_report_target_that_is_a_symlink_to_an_input_is_refused(
     (out / "pakad-report.json").symlink_to(expected)
     args = alias_run(out, profile, expected, collected, "--force")
     assert main(args) == ExitCode.INPUT_ERROR
-    assert "would be overwritten" in capsys.readouterr().err
+    assert "a file that is read is never replaced" in capsys.readouterr().err
     assert expected.read_bytes() == b"id\n1\n"
     assert (out / "pakad-report.json").is_symlink()
 
@@ -895,7 +903,7 @@ def test_an_output_directory_reached_through_a_symlink_is_still_checked(
     alias_dir.symlink_to(real_dir, target_is_directory=True)
     args = alias_run(alias_dir, profile, expected, collected, "--force")
     assert main(args) == ExitCode.INPUT_ERROR
-    assert "would be overwritten" in capsys.readouterr().err
+    assert "a file that is read is never replaced" in capsys.readouterr().err
     assert expected.read_bytes() == b"id\n1\n"
 
 
@@ -913,7 +921,7 @@ def test_an_input_that_is_a_hard_link_to_a_report_target_is_refused(
         pytest.skip("this file system has no hard links")
     args = alias_run(out, profile, real, collected, *(["--force"] if force else []))
     assert main(args) == ExitCode.INPUT_ERROR
-    assert "would be overwritten" in capsys.readouterr().err
+    assert "a file that is read is never replaced" in capsys.readouterr().err
     assert real.read_bytes() == b"id\n1\n"
     assert target.read_bytes() == b"id\n1\n"
 

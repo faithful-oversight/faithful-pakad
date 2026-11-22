@@ -5,46 +5,34 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import os
-import shlex
-import subprocess
-import sys
 import uuid
 from datetime import UTC, datetime
-from enum import IntEnum
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from faithful_core.console import finish, prepare, say, stdout_closed
+from faithful_core.exitcodes import ExitCode
+from faithful_core.files import refuse_aliases
+from faithful_core.safety import command_line, terminal_line
 
 from faithful_pakad import __version__
 from faithful_pakad.errors import PakadError
 from faithful_pakad.model import Severity, Side
 from faithful_pakad.outputs import build_report
-from faithful_pakad.outputs.files import refuse_input_overwrite, write_files
+from faithful_pakad.outputs.files import write_files
 from faithful_pakad.outputs.render import (
     MANIFEST_NAME,
     RENDERERS,
     render_all,
     terminal_summary,
 )
-from faithful_pakad.outputs.safety import terminal_line
 from faithful_pakad.profile import load_profile
 from faithful_pakad.readers import DEFAULT_MAX_BYTES, read_table
 from faithful_pakad.reconcile import parse_timestamp, reconcile
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-
-
-class ExitCode(IntEnum):
-    """Process exit codes. These values are part of the public interface."""
-
-    OK = 0
-    FINDINGS = 1
-    USAGE = 2
-    INPUT_ERROR = 3
-    INTERNAL_ERROR = 4
 
 
 MAX_INTERNAL_MESSAGE_CHARS = 200
@@ -161,15 +149,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _run(args: argparse.Namespace) -> int:
     # Before anything is read or written: a report must never replace a source.
-    refuse_input_overwrite(
-        {
-            "profile": args.profile,
-            "expected input": args.expected,
-            "collected input": args.collected,
-        },
-        args.out_dir,
-        [RENDERERS[fmt][0] for fmt in args.format] + [MANIFEST_NAME],
-    )
+    names = [RENDERERS[fmt][0] for fmt in args.format] + [MANIFEST_NAME]
+    protect = [
+        ("profile", args.profile),
+        ("expected input", args.expected),
+        ("collected input", args.collected),
+    ]
+    refuse_aliases((args.out_dir / name for name in names), protect)
     profile = load_profile(args.profile)
     expected = read_table(args.expected, profile.expected, Side.EXPECTED, max_bytes=args.max_bytes)
     collected = read_table(
@@ -190,7 +176,9 @@ def _run(args: argparse.Namespace) -> int:
         run_id=uuid.uuid4().hex,
     )
 
-    written = write_files(args.out_dir, render_all(report, args.format), force=args.force)
+    written = write_files(
+        args.out_dir, render_all(report, args.format), force=args.force, protect=protect
+    )
 
     # The result is decided before anything is printed, so a failure to print can
     # never change it.
@@ -205,57 +193,8 @@ def _run(args: argparse.Namespace) -> int:
     for path in written:
         hint = "  <- open this in a browser" if path.suffix == ".html" else ""
         lines.append(f"  {terminal_line(str(path))}{hint}")
-    _out("\n".join(lines))
+    say("\n".join(lines))
     return code
-
-
-def _quiet_stdout() -> None:
-    """Point standard output at the null device after the reader has gone away.
-
-    This is the pattern the Python documentation gives for a closed pipe: without
-    it, flushing the broken stream while the interpreter shuts down raises again.
-    """
-    with contextlib.suppress(Exception):
-        sys.stdout.flush()
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    try:
-        with contextlib.suppress(Exception):
-            os.dup2(devnull, sys.stdout.fileno())
-    finally:
-        os.close(devnull)
-    # Kept open on purpose: it replaces standard output for the rest of the process.
-    sys.stdout = Path(os.devnull).open("w", encoding="utf-8")  # noqa: SIM115
-
-
-def _out(text: str, *, end: str = "\n") -> None:
-    """Print to standard output. A closed pipe stops the printing and nothing else."""
-    try:
-        sys.stdout.write(text + end)
-        sys.stdout.flush()
-    except (OSError, ValueError):
-        # BrokenPipeError on POSIX; Windows reports a closed pipe as OSError EINVAL.
-        _quiet_stdout()
-
-
-def _err(text: str) -> None:
-    """Print to standard error. A stream that cannot be written to is ignored."""
-    with contextlib.suppress(OSError, ValueError):
-        sys.stderr.write(text + "\n")
-        sys.stderr.flush()
-
-
-def _make_streams_safe() -> None:
-    r"""Make printing unable to fail on a character the stream cannot encode.
-
-    Redirected output on Windows, ``LANG=C`` and ``PYTHONIOENCODING=ascii`` can all
-    leave a stream that rejects characters such as an accented letter in a path.
-    Such characters print as ``\xeb`` or ``\u00eb`` instead of ending the run.
-    """
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            with contextlib.suppress(Exception):
-                reconfigure(errors="backslashreplace")
 
 
 def _resource(name: str) -> str:
@@ -267,7 +206,7 @@ EXAMPLE_FILES = ("profile.toml", "expected.csv", "collected.csv")
 
 def _example(directory: Path, *, force: bool) -> int:
     write_files(directory, {name: _resource(f"data/{name}") for name in EXAMPLE_FILES}, force=force)
-    command = _command_line(
+    command = command_line(
         "pakad",
         "reconcile",
         "-p",
@@ -281,29 +220,22 @@ def _example(directory: Path, *, force: bool) -> int:
         "--as-of",
         "2026-11-07T12:00:00Z",
     )
-    _out(
+    say(
         f"Wrote a synthetic example to {terminal_line(str(directory))}. Try it:\n\n"
         f"  {terminal_line(command)}"
     )
     return ExitCode.OK
 
 
-def _command_line(*parts: str) -> str:
-    """Quote a command for copying into this platform's usual shell."""
-    if os.name == "nt":
-        return subprocess.list2cmdline(parts)
-    return shlex.join(parts)
-
-
 def _check_profile(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
-    _out(f"{terminal_line(str(args.profile))}: valid profile {terminal_line(repr(profile.name))}")
+    say(f"{terminal_line(str(args.profile))}: valid profile {terminal_line(repr(profile.name))}")
     return ExitCode.OK
 
 
 def _print_resource(name: str) -> Callable[[argparse.Namespace], int]:
     def handler(_: argparse.Namespace) -> int:
-        _out(_resource(name), end="")
+        say(_resource(name), end="")
         return ExitCode.OK
 
     return handler
@@ -326,8 +258,18 @@ def _short(message: str) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the command line and return an exit code."""
-    _make_streams_safe()
+    """Run the command line and return an exit code.
+
+    Printing never changes the exit code: the streams cannot fail on an unencodable
+    character, and a closed pipe stops the output and keeps the code already decided.
+    """
+    prepare()
+    code = _run_command(argv)
+    finish()
+    return code
+
+
+def _run_command(argv: Sequence[str] | None) -> int:
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -337,24 +279,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OSError:
         # --help or --version printed into a pipe that was already closed (on Windows
         # a closed pipe is OSError EINVAL, not BrokenPipeError).
-        _quiet_stdout()
+        stdout_closed()
         return int(ExitCode.OK)
     handler = COMMANDS.get(args.command)
     if handler is None:
         try:
             parser.print_help()
         except OSError:
-            _quiet_stdout()
+            stdout_closed()
         return int(ExitCode.USAGE)
     try:
         return int(handler(args))
     except PakadError as exc:
-        _err(f"pakad: error: {terminal_line(str(exc))}")
+        say(f"pakad: error: {terminal_line(str(exc))}", error=True)
         return int(ExitCode.INPUT_ERROR)
     except Exception as exc:  # noqa: BLE001 - last resort, so a crash never looks like findings
-        _err(
+        say(
             f"pakad: internal error: {type(exc).__name__}: {_short(str(exc))}\n"
             "This is a bug. Please report it: "
-            "https://github.com/faithful-oversight/faithful-pakad/issues"
+            "https://github.com/faithful-oversight/faithful-pakad/issues",
+            error=True,
         )
         return int(ExitCode.INTERNAL_ERROR)

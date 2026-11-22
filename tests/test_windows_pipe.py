@@ -9,7 +9,9 @@ import io
 import sys
 from typing import TYPE_CHECKING
 
-from faithful_pakad import cli
+from faithful_core.exitcodes import ExitCode
+
+from faithful_pakad.cli import main
 
 if TYPE_CHECKING:
     import pytest
@@ -30,7 +32,7 @@ def test_a_windows_closed_pipe_stops_printing_and_replaces_stdout(
 ) -> None:
     closed = ClosedPipe()
     monkeypatch.setattr(sys, "stdout", closed)
-    cli._out("x")  # noqa: SLF001 - the helper every command prints through
+    assert main(["example-profile"]) == ExitCode.OK
     replacement = sys.stdout
     try:
         assert replacement is not closed

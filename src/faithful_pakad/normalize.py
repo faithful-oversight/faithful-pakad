@@ -40,9 +40,3 @@ def normalize(value: str, steps: Sequence[str]) -> str:
     for step in steps:
         value = STEPS[step](value)
     return value
-
-
-def count(number: int, noun: str, plural: str | None = None) -> str:
-    """Return a number with its noun, for example ``1 error`` or ``2 errors``."""
-    word = noun if number == 1 else (plural or noun + "s")
-    return f"{number} {word}"
